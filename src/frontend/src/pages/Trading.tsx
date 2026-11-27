@@ -15,10 +15,11 @@ import { formatCurrency, formatPct } from '../utils/format';
 import type { Position, PaperTradeRequest } from '../types/api';
 
 export function TradingPage() {
-  const { data: paperStatus, isLoading } = usePaperStatus();
-  const { data: positions } = usePositions();
-  const { data: tradeHistory } = useTradeHistory({ limit: 50 });
-  const { data: pnlSummary } = usePnLSummary(30);
+  const { data: paperStatus, isLoading, isError: paperStatusError } = usePaperStatus();
+  const { data: positions, isError: positionsError } = usePositions();
+  const { data: tradeHistory, isError: tradeHistoryError } = useTradeHistory({ limit: 50 });
+  const { data: pnlSummary, isError: pnlSummaryError } = usePnLSummary(30);
+  const tradingDataUnavailable = paperStatusError || positionsError || tradeHistoryError || pnlSummaryError;
   const paperTrade = usePaperTrade();
   const { pause, resume, reset } = usePaperControl();
 
@@ -61,54 +62,60 @@ export function TradingPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Paper Trading</h1>
-          <p className="text-muted-foreground">Simulated trading environment - no real funds at risk</p>
+          <p className="text-muted-foreground">Paper trading controls remain disabled until execution and persisted account data are connected.</p>
         </div>
         <div className="flex items-center gap-2">
           <DialogTrigger asChild onOpenChange={setNewTradeDialog}>
-            <Button onClick={() => resetForm({ symbol: 'BTCUSDT', exchange: 'binance', direction: 'LONG', execution_mode: 'paper', runner_pct: 0.1 })}>
+            <Button disabled onClick={() => resetForm({ symbol: 'BTCUSDT', exchange: 'binance', direction: 'LONG', execution_mode: 'paper', runner_pct: 0.1 })}>
               <Plus className="h-4 w-4 mr-2" />
               New Trade
             </Button>
           </DialogTrigger>
-          <Button variant="outline" size="sm" onClick={() => pause.mutate()} disabled={paperStatus?.is_paused}>
+          <Button variant="outline" size="sm" onClick={() => pause.mutate()} disabled>
             <Pause className="h-4 w-4 mr-2" />
             Pause
           </Button>
-          <Button variant="outline" size="sm" onClick={() => resume.mutate()} disabled={!paperStatus?.is_paused}>
+          <Button variant="outline" size="sm" onClick={() => resume.mutate()} disabled>
             <Play className="h-4 w-4 mr-2" />
             Resume
           </Button>
-          <Button variant="destructive" size="sm" onClick={() => reset.mutate()}>
+          <Button variant="destructive" size="sm" onClick={() => reset.mutate()} disabled>
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset
           </Button>
         </div>
       </div>
 
+      {tradingDataUnavailable && (
+        <div role="alert" className="rounded-md border border-yellow-500/40 bg-yellow-500/5 p-4 text-sm">
+          <strong>Trading data unavailable.</strong> The backend has disabled placeholder trading responses. No positions, orders, trade history, or account metrics are being invented. Paper execution controls are unavailable until the API is connected to its persisted read and execution services.
+        </div>
+      )}
+
       {/* Account Status Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard
           title="Equity"
-          value={formatCurrency(paperStatus?.equity || 0)}
+          value={paperStatus ? formatCurrency(paperStatus.equity) : 'Unavailable'}
           icon={<DollarSign className="h-5 w-5 text-green-400" />}
           change={paperStatus?.unrealized_pnl}
           changeLabel="Unrealized P&L"
         />
         <MetricCard
           title="Available Balance"
-          value={formatCurrency(paperStatus?.available_balance || 0)}
+          value={paperStatus ? formatCurrency(paperStatus.available_balance) : 'Unavailable'}
           icon={<Shield className="h-5 w-5 text-blue-400" />}
           subtitle={`${paperStatus?.open_positions || 0} / ${paperStatus?.max_positions || 2} positions`}
         />
         <MetricCard
           title="Daily P&L"
-          value={formatCurrency(paperStatus?.realized_pnl_today || 0)}
+          value={paperStatus ? formatCurrency(paperStatus.realized_pnl_today) : 'Unavailable'}
           icon={<TrendingUp className="h-5 w-5" />}
           className={paperStatus?.realized_pnl_today && paperStatus.realized_pnl_today >= 0 ? 'text-green-400' : 'text-red-400'}
         />
         <MetricCard
           title="Drawdown Limit"
-          value={`${paperStatus?.daily_loss_limit || 0}%`}
+          value={paperStatus ? `${paperStatus.daily_loss_limit}%` : 'Unavailable'}
           icon={<AlertTriangle className="h-5 w-5 text-yellow-400" />}
           subtitle={paperStatus?.daily_loss_used_pct ? `${paperStatus.daily_loss_used_pct.toFixed(1)}% used` : '0% used'}
         />
@@ -125,7 +132,7 @@ export function TradingPage() {
 
         {/* Positions Tab */}
         <TabsContent value="positions">
-          <PositionsTable positions={positions || []} onClose={setEditingPosition} />
+          {positionsError ? <UnavailablePanel resource="Position data" /> : <PositionsTable positions={positions || []} onClose={setEditingPosition} />}
         </TabsContent>
 
         {/* Orders Tab */}
@@ -142,12 +149,12 @@ export function TradingPage() {
 
         {/* History Tab */}
         <TabsContent value="history">
-          <TradeHistoryTable trades={tradeHistory || []} />
+          {tradeHistoryError ? <UnavailablePanel resource="Trade history" /> : <TradeHistoryTable trades={tradeHistory || []} />}
         </TabsContent>
 
         {/* P&L Tab */}
         <TabsContent value="pnl">
-          <PnLAnalytics pnlSummary={pnlSummary} />
+          {pnlSummaryError ? <UnavailablePanel resource="P&L analytics" /> : <PnLAnalytics pnlSummary={pnlSummary} />}
         </TabsContent>
       </Tabs>
 
@@ -214,7 +221,7 @@ export function TradingPage() {
 
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Button type="button" variant="outline" onClick={() => setNewTradeDialog(false)}>Cancel</Button>
-              <Button type="submit" disabled={paperTrade.isPending}>
+              <Button type="submit" disabled>
                 <Zap className="h-4 w-4 mr-2" />
                 {paperTrade.isPending ? 'Placing...' : 'Place Trade'}
               </Button>
@@ -247,6 +254,18 @@ export function TradingPage() {
 }
 
 // Helper Components
+function UnavailablePanel({ resource }: { resource: string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+        <AlertTriangle className="h-10 w-10 text-yellow-500/70 mb-3" />
+        <h3 className="text-lg font-medium">{resource} unavailable</h3>
+        <p className="text-muted-foreground mt-1">The API has no authoritative persisted read model for this data yet. This is not an empty account.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function MetricCard({
   title,
   value,
