@@ -524,9 +524,6 @@ export interface PaperAccountStatus {
 export interface ExchangeConfig {
   name: ExchangeName;
   enabled: boolean;
-  api_key?: string;
-  api_secret?: string;
-  passphrase?: string;
   testnet: boolean;
   margin_mode: MarginMode;
   position_mode: PositionMode;
