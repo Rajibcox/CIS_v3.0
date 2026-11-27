@@ -232,8 +232,6 @@ class SignalGenerator:
     def __init__(self, config: Config, strategy_service: StrategyService):
         self.config = config
         self.strategy_service = strategy_service
-        self.market_scanner = market_scanner
-        self.session_factory = session_factory
         self.logger = logging.getLogger(__name__)
 
     async def generate_signals(
@@ -383,6 +381,8 @@ class SignalService:
         self.market_data_service = market_data_service
         self.market_regime_service = market_regime_service
         self.strategy_service = strategy_service
+        self.market_scanner = market_scanner
+        self.session_factory = session_factory
         self.logger = logging.getLogger(__name__)
 
         self.scorer = SignalScorer(config)
