@@ -9,9 +9,42 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.backend.models.database import Order, Position
+from src.backend.models.database import Exchange, Order, Position, Symbol
 from src.backend.services.execution_service import ExecutionService
+from src.backend.tests.test_execution_service import FakeMarketData
 
+
+
+@pytest.fixture
+def execution_context(config):
+    config.settings.mock_exchange = True
+    config.settings.paper_trading = True
+    market_data = FakeMarketData()
+    service = ExecutionService(config, risk_service=object(), market_data_service=market_data)
+    return service, market_data
+
+
+@pytest.fixture
+def exchange_symbol(db_session):
+    exchange = Exchange(
+        name="binance",
+        base_url="https://example.invalid",
+        api_version="test",
+        is_active=True,
+    )
+    db_session.add(exchange)
+    db_session.flush()
+    symbol = Symbol(
+        exchange_id=exchange.id,
+        symbol="BTCUSDT",
+        base_asset="BTC",
+        quote_asset="USDT",
+        is_active=True,
+        is_eligible=True,
+    )
+    db_session.add(symbol)
+    db_session.commit()
+    return exchange, symbol
 
 def _signal():
     return SimpleNamespace(
