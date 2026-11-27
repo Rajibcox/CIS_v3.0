@@ -4,7 +4,7 @@ All system configuration through the web UI
 """
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
@@ -37,11 +37,10 @@ class Theme(str, Enum):
 
 # Models
 class ExchangeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: ExchangeName
     enabled: bool
-    api_key: Optional[str] = None  # Never returned in GET
-    api_secret: Optional[str] = None  # Never returned in GET
-    passphrase: Optional[str] = None  # For Bitget
     testnet: bool = False
     margin_mode: MarginMode = MarginMode.ISOLATED
     position_mode: PositionMode = PositionMode.ONE_WAY
@@ -243,12 +242,7 @@ MOCK_CONFIG = FullConfig(
 @router.get("", response_model=FullConfig)
 async def get_full_config():
     """Get complete configuration (secrets masked)"""
-    # Mask secrets
     config = MOCK_CONFIG.dict()
-    for exch in config["exchanges"].values():
-        exch["api_key"] = "***" if exch.get("api_key") else None
-        exch["api_secret"] = "***" if exch.get("api_secret") else None
-        exch["passphrase"] = "***" if exch.get("passphrase") else None
     if config["telegram"].get("bot_token"):
         config["telegram"]["bot_token"] = "***"
     return config
@@ -265,9 +259,9 @@ async def get_exchange_configs():
             testnet=config.testnet,
             margin_mode=config.margin_mode,
             position_mode=config.position_mode,
-            has_credentials=bool(config.api_key and config.api_secret),
-            last_tested=datetime.utcnow(),
-            connection_status="connected"
+            has_credentials=False,
+            last_tested=None,
+            connection_status="not_configured"
         ))
     return result
 
@@ -275,15 +269,30 @@ async def get_exchange_configs():
 @router.put("/exchanges/{exchange_name}")
 async def update_exchange_config(
     exchange_name: ExchangeName,
-    config: ExchangeConfig
+    payload: Dict[str, Any]
 ):
-    """Update exchange configuration"""
+    """Update non-secret exchange settings; credential submission is disabled."""
     if exchange_name not in MOCK_CONFIG.exchanges:
         raise HTTPException(status_code=404, detail="Exchange not found")
 
-    # In real implementation, encrypt credentials before storing
+    forbidden_fields = {"api_key", "api_secret", "passphrase"}
+    if any(str(key).lower() in forbidden_fields for key in payload):
+        raise HTTPException(
+            status_code=400,
+            detail="Exchange API credentials are not accepted in paper-only mode.",
+        )
+
+    try:
+        config = ExchangeConfig.model_validate(payload)
+    except ValidationError:
+        # Never echo request data: validation payloads may contain sensitive values.
+        raise HTTPException(status_code=400, detail="Invalid exchange configuration.")
+
+    if config.name != exchange_name:
+        raise HTTPException(status_code=400, detail="Exchange name does not match the requested endpoint.")
+
     MOCK_CONFIG.exchanges[exchange_name] = config
-    return {"success": True, "message": f"{exchange_name} configuration updated"}
+    return {"success": True, "message": f"{exchange_name.value} configuration updated"}
 
 
 @router.post("/exchanges/{exchange_name}/test")
@@ -292,15 +301,10 @@ async def test_exchange_connection(exchange_name: ExchangeName):
     if exchange_name not in MOCK_CONFIG.exchanges:
         raise HTTPException(status_code=404, detail="Exchange not found")
 
-    # Mock test
-    return {
-        "success": True,
-        "message": "Connection successful",
-        "latency_ms": 45,
-        "server_time": datetime.utcnow().isoformat(),
-        "permissions": ["read", "trade"],
-        "rate_limit": {"used": 12, "limit": 1200, "remaining": 1188}
-    }
+    raise HTTPException(
+        status_code=409,
+        detail="Exchange connectivity testing is unavailable in paper-only mode.",
+    )
 
 
 @router.get("/market", response_model=MarketConfig)
@@ -476,8 +480,6 @@ async def validate_config():
 
     # Exchange validation
     for name, exch in MOCK_CONFIG.exchanges.items():
-        if exch.enabled and not exch.api_key:
-            warnings.append(f"{name} enabled but no API credentials")
 
     # Telegram validation
     if MOCK_CONFIG.telegram.enabled:
