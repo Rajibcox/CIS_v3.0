@@ -199,7 +199,7 @@ export function ConfigurationPage() {
             title="Market Data Configuration"
             form={marketForm}
             onChange={setMarketForm}
-            onSave={(data) => handleSave('market', data)}
+            onSave={(data: Record<string, any>) => handleSave('market', data)}
             fields={[
               { key: 'quote_asset', label: 'Quote Asset', type: 'text' },
               { key: 'contract_type', label: 'Contract Type', type: 'text' },
@@ -222,7 +222,7 @@ export function ConfigurationPage() {
             title="Market Scanner Configuration"
             form={scannerForm}
             onChange={setScannerForm}
-            onSave={(data) => handleSave('scanner', data)}
+            onSave={(data: Record<string, any>) => handleSave('scanner', data)}
             fields={[
               { key: 'scan_interval_seconds', label: 'Scan Interval (seconds)', type: 'number', min: 60 },
               { key: 'max_candidates', label: 'Max Candidates', type: 'number', min: 10, max: 500 },
@@ -248,7 +248,7 @@ export function ConfigurationPage() {
             title="Risk Management Configuration"
             form={riskForm}
             onChange={setRiskForm}
-            onSave={(data) => handleSave('risk', data)}
+            onSave={(data: Record<string, any>) => handleSave('risk', data)}
             fields={[
               { key: 'initial_equity', label: 'Initial Equity (USDT)', type: 'number', step: 10, min: 10 },
               { key: 'risk_per_trade_pct', label: 'Risk Per Trade (%)', type: 'number', min: 0.1, max: 5, step: 0.1 },
@@ -270,7 +270,7 @@ export function ConfigurationPage() {
             title="Take Profit / Stop Loss Configuration"
             form={tpSlForm}
             onChange={setTpSlForm}
-            onSave={(data) => handleSave('tp_sl', data)}
+            onSave={(data: Record<string, any>) => handleSave('tp_sl', data)}
             fields={[
               { key: 'trailing_atr_multiplier', label: 'Trailing ATR Multiplier', type: 'number', step: 0.1, min: 0.5, max: 5 },
               { key: 'min_trailing_distance_pct', label: 'Min Trailing Distance (%)', type: 'number', step: 0.01, min: 0.01, max: 1 },
@@ -301,7 +301,7 @@ export function ConfigurationPage() {
             title="Leverage Intelligence Configuration"
             form={leverageForm}
             onChange={setLeverageForm}
-            onSave={(data) => handleSave('leverage', data)}
+            onSave={(data: Record<string, any>) => handleSave('leverage', data)}
             fields={[
               { key: 'max_leverage', label: 'Max Leverage', type: 'number', min: 1, max: 100 },
               { key: 'liquidation_buffer_pct', label: 'Liquidation Buffer (%)', type: 'number', step: 1, min: 5, max: 50 },
@@ -320,7 +320,7 @@ export function ConfigurationPage() {
             title="Paper Trading Configuration"
             form={paperForm}
             onChange={setPaperForm}
-            onSave={(data) => handleSave('paper_trading', data)}
+            onSave={(data: Record<string, any>) => handleSave('paper_trading', data)}
             booleanFields={[
               { key: 'enabled', label: 'Enabled' },
             ]}
@@ -339,7 +339,7 @@ export function ConfigurationPage() {
           <TelegramTab
             form={telegramForm}
             onChange={setTelegramForm}
-            onSave={(data) => handleSave('telegram', data)}
+            onSave={(data: Record<string, any>) => handleSave('telegram', data)}
           />
         </TabsContent>
 
@@ -349,7 +349,7 @@ export function ConfigurationPage() {
             title="Notifications Configuration"
             form={notificationsForm}
             onChange={setNotificationsForm}
-            onSave={(data) => handleSave('notifications', data)}
+            onSave={(data: Record<string, any>) => handleSave('notifications', data)}
             booleanFields={[
               { key: 'telegram_enabled', label: 'Telegram Enabled' },
               { key: 'email_enabled', label: 'Email Enabled' },
@@ -371,7 +371,7 @@ export function ConfigurationPage() {
             title="UI Configuration"
             form={uiForm}
             onChange={setUiForm}
-            onSave={(data) => handleSave('ui', data)}
+            onSave={(data: Record<string, any>) => handleSave('ui', data)}
             fields={[
               { key: 'theme', label: 'Theme', type: 'select', options: ['light', 'dark', 'system'] },
               { key: 'auto_refresh_seconds', label: 'Auto Refresh (seconds)', type: 'number', min: 1, max: 300 },
@@ -392,7 +392,7 @@ export function ConfigurationPage() {
             title="Backup Configuration"
             form={backupForm}
             onChange={setBackupForm}
-            onSave={(data) => handleSave('backup', data)}
+            onSave={(data: Record<string, any>) => handleSave('backup', data)}
             booleanFields={[
               { key: 'enabled', label: 'Enabled' },
               { key: 'encrypt_backups', label: 'Encrypt Backups' },
@@ -580,7 +580,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                       id={`${exch.name}-testnet`}
                       type="checkbox"
                       checked={form.testnet}
-                      onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], testnet: e.target.checked } }))}
+                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], testnet: e.target.checked } }))}
                     />
                   </div>
                 </div>
@@ -588,7 +588,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor={`${exch.name}-margin-mode`}>Margin Mode</Label>
-                    <Select value={form.margin_mode} onValueChange={(v) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], margin_mode: v } }))}>
+                    <Select value={form.margin_mode} onValueChange={(v) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], margin_mode: v } }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="isolated">Isolated</SelectItem>
@@ -598,7 +598,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor={`${exch.name}-position-mode`}>Position Mode</Label>
-                    <Select value={form.position_mode} onValueChange={(v) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], position_mode: v } }))}>
+                    <Select value={form.position_mode} onValueChange={(v) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], position_mode: v } }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="one_way">One-Way</SelectItem>
@@ -614,7 +614,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                     id={`${exch.name}-api-key`}
                     type="password"
                     value={form.api_key}
-                    onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_key: e.target.value } }))}
+                    onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_key: e.target.value } }))}
                     placeholder="Enter API key"
                   />
                 </div>
@@ -625,7 +625,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                     id={`${exch.name}-api-secret`}
                     type="password"
                     value={form.api_secret}
-                    onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_secret: e.target.value } }))}
+                    onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_secret: e.target.value } }))}
                     placeholder="Enter API secret"
                   />
                 </div>
@@ -637,7 +637,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                       id={`${exch.name}-passphrase`}
                       type="password"
                       value={form.passphrase}
-                      onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], passphrase: e.target.value } }))}
+                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], passphrase: e.target.value } }))}
                       placeholder="Enter passphrase"
                     />
                   </div>
@@ -653,7 +653,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                       min="0.1"
                       max="1"
                       value={form.rate_limit_buffer}
-                      onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], rate_limit_buffer: parseFloat(e.target.value) } }))}
+                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], rate_limit_buffer: parseFloat(e.target.value) } }))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -664,7 +664,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                       min="1000"
                       max="60000"
                       value={form.recv_window}
-                      onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], recv_window: parseInt(e.target.value) } }))}
+                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], recv_window: parseInt(e.target.value) } }))}
                     />
                   </div>
                 </div>
@@ -690,7 +690,7 @@ function TelegramTab({ form, onChange, onSave }: any) {
       title="Telegram Bot Configuration"
       form={form}
       onChange={onChange}
-      onSave={(data) => onSave('telegram', data)}
+      onSave={(data: Record<string, any>) => onSave('telegram', data)}
       fields={[
         { key: 'bot_token', label: 'Bot Token', type: 'password', placeholder: 'Enter bot token from @BotFather' },
       ]}
@@ -775,7 +775,7 @@ function ConfigFormSection({
                 <div key={field.key} className="space-y-2" style={field.fullWidth ? { gridColumn: '1 / -1' } : {}}>
                   <Label htmlFor={field.key}>{field.label}</Label>
                   {field.type === 'select' ? (
-                    <Select value={form[field.key] || ''} onValueChange={(v) => onChange(prev => ({ ...prev, [field.key]: v }))}>
+                    <Select value={form[field.key] || ''} onValueChange={(v) => onChange((prev: Record<string, any>) => ({ ...prev, [field.key]: v }))}>
                       <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
                       <SelectContent>
                         {field.options?.map((opt: string) => (
@@ -791,7 +791,7 @@ function ConfigFormSection({
                       min={field.min}
                       max={field.max}
                       value={form[field.key] || ''}
-                      onChange={(e) => onChange(prev => ({ ...prev, [field.key]: field.type === 'number' ? parseFloat(e.target.value) : e.target.value }))}
+                      onChange={(e) => onChange((prev: Record<string, any>) => ({ ...prev, [field.key]: field.type === 'number' ? parseFloat(e.target.value) : e.target.value }))}
                       placeholder={field.placeholder}
                     />
                   )}
@@ -808,7 +808,7 @@ function ConfigFormSection({
                   <input
                     type="checkbox"
                     checked={form[field.key] || false}
-                    onChange={(e) => onChange(prev => ({ ...prev, [field.key]: e.target.checked }))}
+                    onChange={(e) => onChange((prev: Record<string, any>) => ({ ...prev, [field.key]: e.target.checked }))}
                     className="h-4 w-4"
                   />
                   <span className="text-sm">{field.label}</span>
@@ -827,7 +827,7 @@ function ConfigFormSection({
                   itemLabel={config.itemLabel}
                   type={config.type}
                   value={form[key] || []}
-                  onChange={(value) => onChange(prev => ({ ...prev, [key]: value }))}
+                  onChange={(value: any) => onChange((prev: Record<string, any>) => ({ ...prev, [key]: value }))}
                   options={config.options}
                 />
               ))}
@@ -849,7 +849,7 @@ function ConfigFormSection({
                             <input
                               type="checkbox"
                               checked={form[key]?.[field.key] || false}
-                              onChange={(e) => onChange(prev => ({
+                              onChange={(e) => onChange((prev: Record<string, any>) => ({
                                 ...prev,
                                 [key]: { ...prev[key], [field.key]: e.target.checked }
                               }))}
@@ -865,7 +865,7 @@ function ConfigFormSection({
                             min={field.min}
                             max={field.max}
                             value={form[key]?.[field.key] || ''}
-                            onChange={(e) => onChange(prev => ({
+                            onChange={(e) => onChange((prev: Record<string, any>) => ({
                               ...prev,
                               [key]: { ...prev[key], [field.key]: field.type === 'number' ? parseFloat(e.target.value) : e.target.value }
                             }))}
