@@ -429,7 +429,7 @@ function ServiceStatusTable({ services }: any) {
             status === 'running' ? 'success' :
             status === 'stopped' ? 'secondary' : 'destructive'
           }>
-            {status}
+            {String(status)}
           </Badge>
         </div>
       ))}
