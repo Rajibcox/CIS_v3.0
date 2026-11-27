@@ -396,16 +396,25 @@ class WebSocketManager:
         self.connection_manager.register_handler("get_signal", "signals", self._handle_get_signal)
         self.connection_manager.register_handler("get_pnl", "pnl", self._handle_get_pnl)
 
-        # Start background update task
+        # Retain the background task so shutdown can await its completion.
         self._running = True
-        asyncio.create_task(self._broadcast_updates())
+        if self._update_task is None or self._update_task.done():
+            self._update_task = asyncio.create_task(self._broadcast_updates())
 
         self.logger.info("WebSocket Manager initialized")
 
     async def shutdown(self):
         """Shutdown WebSocket manager"""
         self._running = False
-        # Disconnect all clients
+        if self._update_task is not None:
+            self._update_task.cancel()
+            try:
+                await self._update_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._update_task = None
+        # Disconnect all clients even if the update task was already stopped.
         for client_id in list(self.connection_manager.active_connections.keys()):
             await self.connection_manager.disconnect(client_id)
         self.logger.info("WebSocket Manager shut down")
