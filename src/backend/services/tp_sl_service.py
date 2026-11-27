@@ -1,41 +1,40 @@
 """
-TP/SL Service for QUANTUM TRADER V1
-Implements advanced Take Profit / Stop Loss management with profit protection
+Paper-first TP/SL management for QUANTUM TRADER.
+TP/SL triggers are evaluated from market data and closed through the paper
+ExecutionService. No exchange-native conditional orders are submitted.
 """
-
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from decimal import Decimal, ROUND_DOWN
-from typing import List, Dict, Optional, Any, Tuple
-from dataclasses import dataclass, field
-from enum import Enum
-from sqlalchemy.orm import Session
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, Optional
+
+from sqlalchemy.orm import Session, object_session
 
 from src.backend.models.database import (
-    Position, Order, OrderStatus, OrderType
+    OrderStatus, OrderType as DBOrderType, PositionStatus, TP_SL_Stage,
+    TPStageStatus,
 )
-from src.backend.services.execution_service import ExecutionService, OrderParams, OrderSide, OrderType
+from src.backend.services.execution_service import (
+    ExecutionService, OrderParams, OrderSide, OrderType,
+)
 from src.backend.services.risk_service import RiskService
 from src.backend.services.market_data_service import MarketDataService
 from src.backend.utils.config import Config
-from src.backend.utils.logger import get_logger
 
 
 logger = logging.getLogger(__name__)
 
 
-class TPStage(Enum):
-    """Take profit stages"""
-    INITIAL_SL = 0      # Initial stop loss
-    TP1 = 1             # First take profit (40%)
-    TP2 = 2             # Second take profit (30%)
-    TP3 = 3             # Third take profit (20%)
-    RUNNER = 4          # Runner (10%)
+class TPStage:
+    INITIAL_SL = 0
+    TP1 = 1
+    TP2 = 2
+    TP3 = 3
+    RUNNER = 4
 
 
-class TPStatus(Enum):
-    """TP/SL order status"""
+class TPStatus:
     PENDING = "pending"
     ACTIVE = "active"
     TRIGGERED = "triggered"
@@ -44,394 +43,414 @@ class TPStatus(Enum):
     FAILED = "failed"
 
 
-@dataclass
 class TPOrder:
-    """TP/SL order specification"""
-    stage: int
-    target_price: Decimal
-    quantity: Decimal
-    order_id: Optional[str] = None
-    exchange_order_id: Optional[str] = None
-    status: TPStatus = TPStatus.PENDING
-    triggered_at: Optional[datetime] = None
-    filled_at: Optional[datetime] = None
-
-
-@dataclass
-class PositionTPState:
-    """Complete TP/SL state for a position"""
-    position_id: int
-    symbol: str
-    exchange: str
-    direction: str  # LONG/SHORT
-    entry_price: Decimal
-    quantity: Decimal
-    current_stage: int  # 0=initial, 1=TP1 hit, 2=TP2 hit, 3=TP3 hit, 4=runner
-    stop_loss: Decimal
-    tp_orders: Dict[int, TPOrder]  # stage -> TPOrder
-    runner_trailing_price: Optional[Decimal] = None
-    runner_high: Optional[Decimal] = None
-    runner_low: Optional[Decimal] = None
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    def __init__(self, stage: int, target_price: Decimal, quantity: Decimal):
+        self.stage = stage
+        self.target_price = target_price
+        self.quantity = quantity
+        self.order_id = None
+        self.exchange_order_id = None
+        self.status = TPStatus.PENDING
+        self.triggered_at = None
+        self.filled_at = None
+        self.db_stage_id = None
 
 
 class TPSLManager:
-    """Manages TP/SL orders for a single position"""
+    """Manages one open position using paper-market close orders."""
 
-    def __init__(
-        self,
-        position: Any,
-        config: Config,
-        execution_service: "ExecutionService",
-        market_data_service: "MarketDataService"
-    ):
+    def __init__(self, position: Any, config: Config,
+                 execution_service: ExecutionService,
+                 market_data_service: MarketDataService):
         self.position = position
         self.config = config
         self.execution_service = execution_service
         self.market_data_service = market_data_service
-        self.logger = logging.getLogger(f"tp_sl.{position.symbol}")
-        self.state = self._initialize_state()
+        self.logger = logging.getLogger(f"tp_sl.{position.symbol.symbol if getattr(position, 'symbol', None) else position.id}")
+        self.db: Optional[Session] = object_session(position)
+        self.mode = "paper"
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
-        self.mode = "paper"
+        self._sl_closing = False
+        self.state = self._initialize_state()
 
-    def _initialize_state(self) -> Dict:
-        """Initialize TP/SL state from position"""
+    @staticmethod
+    def _decimal(value: Any, label: str) -> Decimal:
+        try:
+            result = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError(f"{label} must be a valid decimal number")
+        if not result.is_finite():
+            raise ValueError(f"{label} must be finite")
+        return result
+
+    def _initialize_state(self) -> Dict[str, Any]:
+        signal = getattr(self.position, "signal", None)
+        if signal is None:
+            raise ValueError("Position must reference a signal containing TP/SL targets")
+
+        direction = getattr(self.position.direction, "value", self.position.direction)
+        direction = str(direction).upper()
+        if direction not in ("LONG", "SHORT"):
+            raise ValueError("Position direction must be LONG or SHORT")
+
+        entry = self._decimal(self.position.entry_price, "entry_price")
+        quantity = self._decimal(self.position.quantity, "position quantity")
+        stop = self._decimal(signal.stop_loss, "stop_loss")
+        targets = [
+            self._decimal(signal.tp1, "tp1"),
+            self._decimal(signal.tp2, "tp2"),
+            self._decimal(signal.tp3, "tp3"),
+        ]
+        if entry <= 0 or quantity <= 0 or stop <= 0 or any(x <= 0 for x in targets):
+            raise ValueError("Entry, quantity, stop-loss and take-profit prices must be positive")
+        if direction == "LONG":
+            valid = stop < entry and targets[0] > entry and targets[0] < targets[1] < targets[2]
+        else:
+            valid = stop > entry and targets[0] < entry and targets[0] > targets[1] > targets[2]
+        if not valid:
+            raise ValueError(f"Invalid {direction} TP/SL price ordering")
+
+        allocation = self.config.settings.tp_allocation
+        keys = ("tp1", "tp2", "tp3", "runner")
+        try:
+            fractions = {key: self._decimal(allocation[key], f"tp_allocation.{key}") for key in keys}
+        except (KeyError, TypeError):
+            raise ValueError("TP allocation must define tp1, tp2, tp3 and runner")
+        if any(value <= 0 or value >= 1 for value in fractions.values()):
+            raise ValueError("Each TP allocation must be greater than 0 and less than 1")
+        if sum(fractions.values(), Decimal("0")) != Decimal("1"):
+            raise ValueError("TP allocations must sum exactly to 1")
+
+        exchange = getattr(self.position, "exchange", None)
+        exchange_name = getattr(exchange, "name", None)
+        if not exchange_name:
+            raise ValueError("Position must have a valid exchange relationship")
+        symbol_obj = getattr(self.position, "symbol", None)
+        symbol = getattr(symbol_obj, "symbol", None)
+        if not symbol:
+            raise ValueError("Position must have a valid symbol relationship")
+
+        tp_orders = {
+            stage: TPOrder(stage, targets[stage - 1], quantity * fractions[f"tp{stage}"])
+            for stage in (1, 2, 3)
+        }
+        tp_orders[4] = TPOrder(4, Decimal("0"), quantity * fractions["runner"])
         return {
-            'position_id': self.position.id,
-            'symbol': self.position.symbol,
-            'exchange': self.position.exchange,
-            'direction': self.position.direction,
-            'entry_price': self.position.entry_price,
-            'quantity': self.position.quantity,
-            'current_stage': 0,  # 0 = initial SL
-            'stop_loss': self.position.stop_loss,
-            'tp1': self.position.tp1,
-            'tp2': self.position.tp2,
-            'tp3': self.position.tp3,
-            'tp_orders': {
-                1: TPOrder(stage=1, target_price=self.position.tp1, quantity=self.position.quantity * Decimal('0.4')),
-                2: TPOrder(stage=2, target_price=self.position.tp2, quantity=self.position.quantity * Decimal('0.3')),
-                3: TPOrder(stage=3, target_price=self.position.tp3, quantity=self.position.quantity * Decimal('0.2')),
-                4: TPOrder(stage=4, target_price=Decimal('0'), quantity=self.position.quantity * Decimal('0.1')),  # Runner
-            },
-            'runner_trailing_price': None,
-            'runner_high': None,
-            'runner_low': None,
-            'updated_at': datetime.utcnow()
+            "position_id": self.position.id,
+            "symbol": symbol,
+            "exchange": exchange_name,
+            "direction": direction,
+            "entry_price": entry,
+            "quantity": quantity,
+            "original_quantity": quantity,
+            "current_stage": 0,
+            "stop_loss": stop,
+            "tp1": targets[0],
+            "tp2": targets[1],
+            "tp3": targets[2],
+            "tp_orders": tp_orders,
+            "runner_trailing_price": None,
+            "runner_high": None,
+            "runner_low": None,
+            "updated_at": datetime.utcnow(),
+            "db_stages": {},
         }
 
     async def start(self, mode: str = "paper"):
-        """Start TP/SL monitoring"""
-        self._running = True
-        self.mode = mode
-        # Price monitoring is authoritative for paper TP/SL triggers.
+        if mode != "paper" or not self.config.settings.mock_exchange or not self.config.settings.paper_trading:
+            raise RuntimeError("TP/SL service requires mock_exchange=True and paper_trading=True")
+        if self._running:
+            return
         await self._place_initial_orders(mode)
-        # Start monitoring
+        self.mode = "paper"
+        self._running = True
         self._monitor_task = asyncio.create_task(self._monitor_loop())
-        self.logger.info(f"Started TP/SL monitoring for {self.position.symbol}")
+        self.logger.info("Started paper TP/SL monitoring for %s", self.state["symbol"])
 
     async def stop(self):
-        """Stop TP/SL monitoring"""
         self._running = False
-        if self._monitor_task:
+        if self._monitor_task and not self._monitor_task.done():
             self._monitor_task.cancel()
             try:
                 await self._monitor_task
             except asyncio.CancelledError:
                 pass
+        self._monitor_task = None
+
+    def _persist_stage(self, stage_number: int, target: Optional[Decimal],
+                       quantity: Decimal, status: str = TPStatus.PENDING,
+                       triggered_at=None, filled_at=None, exchange_order_id=None):
+        if self.db is None:
+            return
+        row = self.state["db_stages"].get(stage_number)
+        db_status = TPStageStatus(status) if status in TPStageStatus._value2member_map_ else TPStageStatus.PENDING
+        if row is None:
+            row = TP_SL_Stage(
+                position_id=self.position.id,
+                stage_type=db_status,
+                stage_number=stage_number,
+                target_price=float(target) if target is not None else None,
+                quantity=float(quantity),
+                status=db_status,
+            )
+            self.db.add(row)
+            self.state["db_stages"][stage_number] = row
+        else:
+            row.stage_type = db_status
+            row.status = db_status
+            row.target_price = float(target) if target is not None else None
+            row.quantity = float(quantity)
+        row.triggered_at = triggered_at
+        row.filled_at = filled_at
+        row.exchange_order_id = exchange_order_id
+        self.db.flush()
 
     async def _place_initial_orders(self, mode: str):
-        """Place initial TP and SL orders"""
-        # This would call execution service to place orders
-        # Placeholder - actual implementation would use execution service
-        pass
+        # Paper mode uses the ticker monitor as the trigger source. Persist the
+        # initial SL (stage 0), TP1-TP3 and runner (stage 4); do not submit
+        # exchange-native conditional orders.
+        self._persist_stage(0, self.state["stop_loss"], self.state["original_quantity"])
+        for stage, order in self.state["tp_orders"].items():
+            self._persist_stage(stage, order.target_price if stage != 4 else None, order.quantity)
 
     async def _monitor_loop(self):
-        """Main monitoring loop"""
-        while True:
+        while self._running:
             try:
-                await asyncio.sleep(5)  # Check every 5 seconds
-                if not self._running:
-                    break
-                await self._check_and_update()
+                await asyncio.sleep(5)
+                if self._running:
+                    await self._check_and_update()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logging.getLogger(__name__).error(f"Error in TP/SL monitor: {e}")
-                await asyncio.sleep(10)
+            except Exception:
+                self.logger.exception("TP/SL monitoring error for %s", self.state["symbol"])
+                await asyncio.sleep(5)
 
     async def _check_and_update(self):
-        """Check TP/SL status and update if needed"""
-        # Get current market price
         ticker = await self.market_data_service.get_ticker(
-            self.position.symbol, self.position.exchange
+            self.state["symbol"], self.state["exchange"]
         )
-        if not ticker:
-            return
-
         raw_price = ticker.get("price") if isinstance(ticker, dict) else getattr(ticker, "price", None)
         if raw_price is None:
             return
-        current_price = Decimal(str(raw_price))
+        current_price = self._decimal(raw_price, "market price")
+        if current_price <= 0:
+            return
 
-        # Check each TP level using the same fresh ticker snapshot.
-        for stage in [1, 2, 3]:
-            tp_order = self.state["tp_orders"][stage]
-            if tp_order.status in (TPStatus.PENDING, TPStatus.ACTIVE):
-                if self._is_tp_triggered(stage, tp_order.target_price, current_price):
-                    await self._handle_tp_trigger(stage)
-
-        # Check runner trailing stop.
-        if self.state["current_stage"] >= 3:
+        for stage in (1, 2, 3):
+            order = self.state["tp_orders"][stage]
+            if order.status == TPStatus.PENDING and self._is_tp_triggered(stage, order.target_price, current_price):
+                await self._handle_tp_trigger(stage)
+        if self.state["current_stage"] >= 4:
             await self._update_runner_trailing(current_price)
-
-        # Check stop loss after TP processing and trailing-stop adjustment.
         if self._is_sl_triggered(current_price):
             await self._handle_sl_trigger()
 
-    def _is_tp_triggered(
-        self, stage: int, target_price: Decimal, current_price: Decimal
-    ) -> bool:
-        """Check a take-profit threshold against the current market price."""
-        if self.position.direction == "LONG":
-            return current_price >= target_price
-        return current_price <= target_price
+    def _is_tp_triggered(self, stage: int, target_price: Decimal, current_price: Decimal) -> bool:
+        return current_price >= target_price if self.state["direction"] == "LONG" else current_price <= target_price
 
     def _is_sl_triggered(self, current_price: Decimal) -> bool:
-        """Check the active stop-loss threshold against the current market price."""
-        stop_loss = Decimal(str(self.state["stop_loss"]))
-        if self.position.direction == "LONG":
-            return current_price <= stop_loss
-        return current_price >= stop_loss
+        stop = self.state["stop_loss"]
+        return current_price <= stop if self.state["direction"] == "LONG" else current_price >= stop
+
+    def _close_side(self):
+        return OrderSide.SELL if self.state["direction"] == "LONG" else OrderSide.BUY
+
+    async def _submit_close(self, quantity: Decimal):
+        return await self.execution_service.place_order(
+            OrderParams(
+                symbol=self.state["symbol"],
+                exchange=self.state["exchange"],
+                side=self._close_side(),
+                order_type=OrderType.MARKET,
+                quantity=quantity,
+                reduce_only=True,
+                position_side=self.state["direction"],
+            ),
+            mode="paper",
+            db=self.db,
+            position_id=self.position.id,
+        )
+
+    def _update_position_after_fill(self, quantity: Decimal, fill_price: Decimal):
+        remaining = max(Decimal("0"), self.state["quantity"] - quantity)
+        entry = self.state["entry_price"]
+        pnl = (fill_price - entry) * quantity
+        if self.state["direction"] == "SHORT":
+            pnl = -pnl
+        self.position.realized_pnl = float(Decimal(str(self.position.realized_pnl or 0)) + pnl)
+        self.state["quantity"] = remaining
+        self.position.quantity = float(remaining)
+        if remaining == 0:
+            self.position.status = PositionStatus.CLOSED
+            self.position.close_time = datetime.utcnow()
+        self.state["updated_at"] = datetime.utcnow()
+        if self.db is not None:
+            self.db.flush()
 
     async def _handle_tp_trigger(self, stage: int):
-        """Handle TP trigger"""
-        tp_order = self.state["tp_orders"][stage]
-        if tp_order.status in (TPStatus.TRIGGERED, TPStatus.FILLED):
+        order = self.state["tp_orders"][stage]
+        if order.status == TPStatus.FILLED or order.quantity <= 0:
             return
-
-        close_side = OrderSide.SELL if self.position.direction == "LONG" else OrderSide.BUY
-        result = await self.execution_service.place_order(
-            OrderParams(
-                symbol=self.position.symbol,
-                exchange=self.position.exchange,
-                side=close_side,
-                order_type=OrderType.MARKET,
-                quantity=tp_order.quantity,
-                reduce_only=True,
-                position_side=self.position.direction,
-            ),
-            mode=self.mode,
-        )
+        result = await self._submit_close(min(order.quantity, self.state["quantity"]))
         if result.status != OrderStatus.FILLED:
-            self.logger.error(
-                "TP%s close failed for %s: %s",
-                stage, self.position.symbol, result.error or result.status.value,
-            )
+            self.logger.error("TP%s close rejected for %s: %s", stage, self.state["symbol"], result.error or result.status.value)
             return
 
-        self.logger.info(f"TP{stage} triggered for {self.position.symbol}")
-        tp_order.status = TPStatus.FILLED
-        tp_order.triggered_at = datetime.utcnow()
-        tp_order.filled_at = datetime.utcnow()
+        now = datetime.utcnow()
+        filled_qty = min(order.quantity, self.state["quantity"])
+        order.status = TPStatus.FILLED
+        order.triggered_at = now
+        order.filled_at = now
+        order.order_id = result.order_id
+        order.exchange_order_id = result.exchange_order_id
+        self._update_position_after_fill(filled_qty, result.average_fill_price)
         self.state["current_stage"] = stage
+        self._persist_stage(stage, order.target_price, order.quantity, TPStatus.FILLED,
+                            now, now, result.exchange_order_id)
 
-        # Move stop loss to next level
         if stage == 1:
-            # Move SL to break-even (entry price + fees)
             new_sl = self._calculate_breakeven()
             await self._update_stop_loss(new_sl)
-            self.state['stop_loss'] = new_sl
-
         elif stage == 2:
-            # Move SL to TP1
-            new_sl = self.state['tp1']
-            await self._update_stop_loss(new_sl)
-            self.state['stop_loss'] = new_sl
-
+            await self._update_stop_loss(self.state["tp1"])
         elif stage == 3:
-            # Move SL to TP2, activate runner
-            new_sl = self.state['tp2']
-            await self._update_stop_loss(new_sl)
-            self.state['stop_loss'] = new_sl
-            self.state['current_stage'] = 4
-            self.state['runner_trailing_price'] = self.state['tp2']
-
-        self.state['updated_at'] = datetime.utcnow()
+            await self._update_stop_loss(self.state["tp2"])
+            self.state["current_stage"] = 4
+            self.state["runner_trailing_price"] = self.state["tp2"]
 
     def _calculate_breakeven(self) -> Decimal:
-        """Calculate break-even price including fees"""
-        entry = self.position.entry_price
-        fees = self.position.entry_price * self.position.quantity * Decimal('0.0004')  # 0.04% entry fee
-        funding = self.position.entry_price * self.position.quantity * Decimal('0.0001') * 3  # 3 funding periods
-
-        total_cost = fees + funding
-        breakeven_per_qty = total_cost / self.position.quantity
-
-        if self.position.direction == "LONG":
-            return self.position.entry_price + breakeven_per_qty
-        else:
-            return self.position.entry_price - breakeven_per_qty
+        entry = self.state["entry_price"]
+        fee_rate = Decimal(str(self.config.settings.paper_fees))
+        funding_rate = Decimal(str(self.config.settings.paper_funding_rate))
+        cost_per_unit = entry * (fee_rate + funding_rate * Decimal("3"))
+        return entry + cost_per_unit if self.state["direction"] == "LONG" else entry - cost_per_unit
 
     async def _update_stop_loss(self, new_sl: Decimal):
-        """Update stop loss order"""
-        # Cancel old SL, place new one
-        # Would call execution service
-        self.logger.info(f"Updated stop loss to {new_sl}")
+        new_sl = self._decimal(new_sl, "new stop_loss")
+        if new_sl <= 0:
+            raise ValueError("Stop-loss price must be positive")
+        old = self.state["stop_loss"]
+        if self.state["direction"] == "LONG" and new_sl < old:
+            return
+        if self.state["direction"] == "SHORT" and new_sl > old:
+            return
+        self.state["stop_loss"] = new_sl
+        self.state["updated_at"] = datetime.utcnow()
+        self._persist_stage(0, new_sl, self.state["original_quantity"])
+
+    async def _get_atr(self) -> Decimal:
+        candles = await self.market_data_service.get_candles(
+            self.state["symbol"], "15m", limit=15, exchange=self.state["exchange"]
+        )
+        if not candles or len(candles) < 2:
+            return self.state["entry_price"] * Decimal(str(self.config.settings.min_trailing_distance))
+        ranges = []
+        previous_close = None
+        for candle in candles[-14:]:
+            high = Decimal(str(candle["high"]))
+            low = Decimal(str(candle["low"]))
+            close = Decimal(str(candle["close"]))
+            true_range = high - low
+            if previous_close is not None:
+                true_range = max(true_range, abs(high - previous_close), abs(low - previous_close))
+            ranges.append(true_range)
+            previous_close = close
+        return sum(ranges, Decimal("0")) / Decimal(len(ranges))
 
     async def _update_runner_trailing(self, current_price: Decimal):
-        """Update runner trailing stop using the latest market price."""
-
-        if self.position.direction == "LONG":
-            # Trail up
-            if self.state['runner_high'] is None or current_price > self.state['runner_high']:
-                self.state['runner_high'] = current_price
-
-            # Calculate trailing stop using ATR
-            atr = self._get_atr()
-            trailing_distance = atr * Decimal(str(self.config.settings.tp_sl.trailing_atr_multiplier))
-            new_sl = self.state['runner_high'] - trailing_distance
-
-            # Only move SL up, never down
-            if new_sl > self.state['stop_loss']:
-                await self._update_stop_loss(new_sl)
-                self.state['runner_trailing_price'] = new_sl
-
+        multiplier = Decimal(str(self.config.settings.trailing_atr_multiplier))
+        distance = await self._get_atr() * multiplier
+        if self.state["direction"] == "LONG":
+            high = self.state["runner_high"]
+            self.state["runner_high"] = current_price if high is None else max(high, current_price)
+            candidate = self.state["runner_high"] - distance
+            if candidate > self.state["stop_loss"]:
+                await self._update_stop_loss(candidate)
+                self.state["runner_trailing_price"] = candidate
         else:
-            # Trail down for SHORT
-            if self.state['runner_low'] is None or current_price < self.state['runner_low']:
-                self.state['runner_low'] = current_price
-
-            atr = self._get_atr()
-            trailing_distance = atr * Decimal(str(self.config.settings.tp_sl.trailing_atr_multiplier))
-            new_sl = self.state['runner_low'] + trailing_distance
-
-            if new_sl < self.state['stop_loss']:
-                await self._update_stop_loss(new_sl)
-                self.state['runner_trailing_price'] = new_sl
-
-    def _get_atr(self) -> Decimal:
-        """Get ATR value (placeholder)"""
-        return Decimal('100')  # Placeholder
+            low = self.state["runner_low"]
+            self.state["runner_low"] = current_price if low is None else min(low, current_price)
+            candidate = self.state["runner_low"] + distance
+            if candidate < self.state["stop_loss"]:
+                await self._update_stop_loss(candidate)
+                self.state["runner_trailing_price"] = candidate
 
     async def _handle_sl_trigger(self):
-        """Close the remaining paper position when its stop loss is reached."""
-        filled_fraction = sum(
-            (
-                self.state["tp_orders"][stage].quantity
-                for stage in (1, 2, 3)
-                if self.state["tp_orders"][stage].status == TPStatus.FILLED
-            ),
-            Decimal("0"),
-        )
-        remaining_quantity = max(
-            Decimal("0"), Decimal(str(self.position.quantity)) - filled_fraction
-        )
-        if remaining_quantity <= 0:
-            self._running = False
+        if self._sl_closing or self.state["quantity"] <= 0:
             return
-
-        close_side = OrderSide.SELL if self.position.direction == "LONG" else OrderSide.BUY
-        result = await self.execution_service.place_order(
-            OrderParams(
-                symbol=self.position.symbol,
-                exchange=self.position.exchange,
-                side=close_side,
-                order_type=OrderType.MARKET,
-                quantity=remaining_quantity,
-                reduce_only=True,
-                position_side=self.position.direction,
-            ),
-            mode=self.mode,
-        )
-        if result.status == OrderStatus.FILLED:
-            self.logger.info("Stop loss closed %s remaining quantity for %s",
-                             remaining_quantity, self.position.symbol)
+        self._sl_closing = True
+        try:
+            remaining = self.state["quantity"]
+            result = await self._submit_close(remaining)
+            if result.status != OrderStatus.FILLED:
+                self.logger.error("Stop-loss close rejected for %s: %s", self.state["symbol"], result.error or result.status.value)
+                return
+            now = datetime.utcnow()
+            self._persist_stage(0, self.state["stop_loss"], self.state["original_quantity"],
+                                TPStatus.FILLED, now, now, result.exchange_order_id)
+            self._update_position_after_fill(remaining, result.average_fill_price)
             self._running = False
-        else:
-            self.logger.error(
-                "Stop-loss close failed for %s: %s",
-                self.position.symbol, result.error or result.status.value,
-            )
+        finally:
+            self._sl_closing = False
 
 
 class TPSLService:
-    """Main TP/SL service managing all positions"""
+    """Coordinates TP/SL managers for open positions."""
 
-    def __init__(
-        self,
-        config: Config,
-        execution_service: "ExecutionService",
-        market_data_service: "MarketDataService",
-        risk_service: "RiskService"
-    ):
+    def __init__(self, config: Config, execution_service: ExecutionService,
+                 market_data_service: MarketDataService, risk_service: RiskService):
         self.config = config
         self.execution_service = execution_service
         self.market_data_service = market_data_service
         self.risk_service = risk_service
         self.logger = logging.getLogger(__name__)
-
         self.managers: Dict[int, TPSLManager] = {}
         self._running = False
 
     async def initialize(self):
-        """Initialize TP/SL service"""
-        self.logger.info("Initializing TP/SL Service...")
+        if not self.config.settings.mock_exchange or not self.config.settings.paper_trading:
+            raise RuntimeError("TP/SL service requires mock_exchange=True and paper_trading=True")
         self._running = True
-        self.logger.info("TP/SL Service initialized")
+        self.logger.info("TP/SL Service initialized in paper mode")
 
     async def shutdown(self):
-        """Shutdown TP/SL service"""
         self._running = False
-        for manager in self.managers.values():
+        for manager in list(self.managers.values()):
             await manager.stop()
         self.logger.info("TP/SL Service shut down")
 
     async def add_position(self, position: Any, mode: str = "paper"):
-        """Add a new position to TP/SL management"""
+        if not self._running:
+            raise RuntimeError("TP/SL service is not initialized")
+        if mode != "paper":
+            raise RuntimeError("Only paper TP/SL management is permitted")
         manager = TPSLManager(position, self.config, self.execution_service, self.market_data_service)
-        self.managers[position.id] = manager
         await manager.start(mode)
-        self.logger.info(f"Added position {position.id} to TP/SL management")
+        self.managers[position.id] = manager
+        self.logger.info("Added position %s to TP/SL management", position.id)
 
     async def remove_position(self, position_id: int):
-        """Remove position from TP/SL management"""
-        if position_id in self.managers:
-            await self.managers[position_id].stop()
-            del self.managers[position_id]
-            self.logger.info(f"Removed position {position_id} from TP/SL management")
+        manager = self.managers.pop(position_id, None)
+        if manager:
+            await manager.stop()
 
     async def update_position_stage(self, position_id: int, new_stage: int):
-        """Manually update position TP stage"""
-        if position_id in self.managers:
-            manager = self.managers[position_id]
-            manager.state['current_stage'] = new_stage
-            manager.state['updated_at'] = datetime.utcnow()
-            self.logger.info(f"Updated position {position_id} to stage {new_stage}")
+        if new_stage not in (0, 1, 2, 3, 4):
+            raise ValueError("TP stage must be between 0 and 4")
+        manager = self.managers.get(position_id)
+        if manager:
+            manager.state["current_stage"] = new_stage
+            manager.state["updated_at"] = datetime.utcnow()
 
     async def update_stop_loss(self, position_id: int, new_sl: Decimal):
-        """Manually update stop loss"""
-        if position_id in self.managers:
-            manager = self.managers[position_id]
+        manager = self.managers.get(position_id)
+        if manager:
             await manager._update_stop_loss(new_sl)
-            manager.state['stop_loss'] = new_sl
-            manager.state['updated_at'] = datetime.utcnow()
-            self.logger.info(f"Updated stop loss for position {position_id} to {new_sl}")
 
     async def get_position_state(self, position_id: int) -> Optional[Dict]:
-        """Get current TP/SL state for a position"""
-        if position_id in self.managers:
-            return self.managers[position_id].state
-        return None
+        manager = self.managers.get(position_id)
+        return manager.state if manager else None
 
     async def get_all_states(self) -> Dict[int, Dict]:
-        """Get all TP/SL states"""
-        return {pid: mgr.state for pid, mgr in self.managers.items()}
-
-    async def shutdown(self):
-        """Shutdown TP/SL service"""
-        for manager in self.managers.values():
-            await manager.stop()
-        self._running = False
-        self.logger.info("TP/SL Service shut down")
+        return {pid: manager.state for pid, manager in self.managers.items()}
