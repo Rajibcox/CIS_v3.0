@@ -234,14 +234,20 @@ class StrategyEngine:
         if not entry_rules:
             return False, {}
 
-        groups = [rule.rule_config for rule in entry_rules]
+        matched_rules = list(entry_rules)
         if direction.upper() == "LONG":
-            groups.extend(rule.rule_config for rule in rules if rule.rule_type == "long")
+            matched_rules.extend(rule for rule in rules if rule.rule_type == "long")
         elif direction.upper() == "SHORT":
-            groups.extend(rule.rule_config for rule in rules if rule.rule_type == "short")
+            matched_rules.extend(rule for rule in rules if rule.rule_type == "short")
+
+        groups = [rule.rule_config for rule in matched_rules]
         if not all(self._group_matches(group, indicators, timeframe) for group in groups):
             return False, {}
-        return True, {"matched_rule_types": ["entry"] + ([direction.lower()] if direction.upper() in ("LONG", "SHORT") else [])}
+        return True, {
+            "matched_rule_types": list(dict.fromkeys(
+                rule.rule_type for rule in matched_rules
+            ))
+        }
 
     def evaluate_exit(
         self,

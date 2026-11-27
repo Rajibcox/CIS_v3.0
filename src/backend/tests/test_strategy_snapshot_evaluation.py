@@ -147,6 +147,30 @@ def test_strategy_timeframe_restriction_does_not_reuse_hourly_values(db_session)
     assert service.evaluate_strategy_matches() == []
 
 
+def test_directional_rule_type_is_reported_only_when_configured(db_session):
+    strategy = _strategy(
+        db_session,
+        direction="long",
+        entry_conditions=[_condition("RSI", "<", 40)],
+    )
+    db_session.add(StrategyRule(
+        strategy_id=strategy.id,
+        rule_type="long",
+        rule_config={"operator": "AND", "conditions": [_condition("RSI", "<", 30)], "groups": []},
+        is_active=True,
+    ))
+    db_session.commit()
+
+    engine = StrategyEngine(config=None)
+    engine.load_active_strategies(db_session)
+    service = _service(engine, {"binance:BTC/USDT": _snapshot()})
+
+    matches = service.evaluate_strategy_matches()
+
+    assert len(matches) == 1
+    assert matches[0].matched_rule_types == ["entry", "long"]
+
+
 def test_direction_configuration_blocks_opposite_direction(db_session):
     _strategy(
         db_session,
