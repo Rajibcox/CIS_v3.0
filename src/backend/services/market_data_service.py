@@ -319,7 +319,7 @@ class MockExchangeAdapter(ExchangeAdapter):
             for tf in ['15m', '1h', '4h', '1d']:
                 candles = []
                 base_time = datetime.utcnow()
-                tf_minutes = {'15m': 15, '1h': 60, '4h': 240, '1d': 1440}.get('1h', 60)
+                tf_minutes = {'15m': 15, '1h': 60, '4h': 240, '1d': 1440}[tf]
 
                 price = base_price
                 for i in range(200):
@@ -335,7 +335,7 @@ class MockExchangeAdapter(ExchangeAdapter):
                     candles.append({
                         'symbol': symbol,
                         'exchange': self.exchange_name,
-                        'timeframe': '1h',
+                        'timeframe': tf,
                         'open_time': open_time,
                         'open': Decimal(str(open_price)),
                         'high': Decimal(str(high)),
@@ -344,7 +344,7 @@ class MockExchangeAdapter(ExchangeAdapter):
                         'volume': Decimal(str(volume)),
                         'is_closed': True
                     })
-                self._mock_candles[(symbol, '1h')] = candles
+                self._mock_candles[(symbol, tf)] = candles
 
     async def initialize(self):
         """Initialize mock adapter"""
@@ -352,10 +352,21 @@ class MockExchangeAdapter(ExchangeAdapter):
         self.logger.info(f"Initialized mock {self.exchange_name} adapter")
 
     def _build_symbol_map(self):
-        """Build symbol map for mock"""
+        """Build symbol and cached specification maps for mock markets."""
         base_symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT']
         for symbol in base_symbols:
             self._symbol_map[symbol] = symbol
+            self._symbol_info_cache[symbol] = {
+                'symbol': symbol,
+                'exchange_symbol': symbol,
+                'base_asset': symbol[:-4],
+                'quote_asset': 'USDT',
+                'tick_size': Decimal('0.01'),
+                'lot_size': Decimal('0.001'),
+                'min_notional': Decimal('5'),
+                'max_leverage': 125,
+                'contract_size': Decimal('1'),
+            }
 
     async def close(self):
         pass
@@ -395,8 +406,9 @@ class MockExchangeAdapter(ExchangeAdapter):
     async def fetch_ticker(self, internal_symbol: str) -> Dict:
         if internal_symbol in self._mock_tickers:
             return self._mock_tickers[internal_symbol]
-        # Generate on the fly
-        return await self.fetch_ticker(internal_symbol)
+        raise ValueError(
+            f"Symbol {internal_symbol} is not available in the mock market data set"
+        )
 
     async def fetch_orderbook(self, internal_symbol: str, depth: int = 20) -> Dict:
         price = Decimal('50000')
