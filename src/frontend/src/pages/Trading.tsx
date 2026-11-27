@@ -105,7 +105,7 @@ export function TradingPage() {
           title="Available Balance"
           value={paperStatus ? formatCurrency(paperStatus.available_balance) : 'Unavailable'}
           icon={<Shield className="h-5 w-5 text-blue-400" />}
-          subtitle={`${paperStatus?.open_positions || 0} / ${paperStatus?.max_positions || 2} positions`}
+          subtitle={paperStatus ? `${paperStatus.open_positions} / ${paperStatus.max_positions} positions` : 'Unavailable'}
         />
         <MetricCard
           title="Daily P&L"
@@ -117,16 +117,16 @@ export function TradingPage() {
           title="Drawdown Limit"
           value={paperStatus ? `${paperStatus.daily_loss_limit}%` : 'Unavailable'}
           icon={<AlertTriangle className="h-5 w-5 text-yellow-400" />}
-          subtitle={paperStatus?.daily_loss_used_pct ? `${paperStatus.daily_loss_used_pct.toFixed(1)}% used` : '0% used'}
+          subtitle={paperStatus ? `${paperStatus.daily_loss_used_pct.toFixed(1)}% used` : 'Unavailable'}
         />
       </div>
 
       {/* Tabs */}
       <Tabs defaultValue="positions" onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="positions">Positions ({(positions?.length || 0)})</TabsTrigger>
+          <TabsTrigger value="positions">Positions ({positionsError ? '—' : (positions?.length ?? 0)})</TabsTrigger>
           <TabsTrigger value="orders">Orders</TabsTrigger>
-          <TabsTrigger value="history">History ({(tradeHistory?.length || 0)})</TabsTrigger>
+          <TabsTrigger value="history">History ({tradeHistoryError ? '—' : (tradeHistory?.length ?? 0)})</TabsTrigger>
           <TabsTrigger value="pnl">P&L Analytics</TabsTrigger>
         </TabsList>
 
