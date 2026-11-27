@@ -277,8 +277,8 @@ class PaperExecutor:
             # as filled merely because the paper executor received the request.
             if cache_order:
                 self.orders[order_id] = {
-                        "id": order_id,
-                    "symbol": params.symbol,
+                "id": order_id,
+                "symbol": params.symbol,
                     "exchange": params.exchange,
                     "side": params.side.value,
                     "type": params.order_type.value,
