@@ -476,8 +476,12 @@ class ExecutionService:
             position_side=signal.direction
         )
 
-        result = await self.place_order(params, mode)
-        if db is not None and result.status == OrderStatus.FILLED:
+        # Resolve all required foreign-key rows before asking the paper
+        # executor to simulate a fill. A missing reference must never leave
+        # an unpersistable simulated order behind.
+        exchange = None
+        symbol = None
+        if db is not None:
             exchange = db.query(Exchange).filter_by(name=signal.exchange).one_or_none()
             symbol = (
                 db.query(Symbol)
@@ -491,6 +495,9 @@ class ExecutionService:
                     f"Cannot create paper position: exchange/symbol not found "
                     f"({signal.exchange}:{signal.symbol})"
                 )
+
+        result = await self.place_order(params, mode)
+        if db is not None and result.status == OrderStatus.FILLED:
             position = Position(
                 signal_id=getattr(signal, "id", None),
                 exchange_id=exchange.id,
@@ -507,9 +514,15 @@ class ExecutionService:
                 status=PositionStatus.OPEN,
                 open_time=result.timestamp,
             )
-            db.add(position)
-            db.flush()
-            self._persist_paper_order(db, params, result, position_id=position.id)
+            try:
+                db.add(position)
+                db.flush()
+                self._persist_paper_order(db, params, result, position_id=position.id)
+            except Exception:
+                # The caller owns SQLAlchemy commit/rollback. Compensate only
+                # the in-memory simulation entry if this unit of work fails.
+                self.paper_executor.orders.pop(result.order_id, None)
+                raise
         return result
 
     async def place_tp_sl_orders(
