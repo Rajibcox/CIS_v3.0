@@ -241,7 +241,7 @@ class DynamicLeverageCalculator:
         """
         # 1. Calculate position size from risk
         stop_distance = abs(entry_price - stop_loss)
-        max_risk = Decimal(str(self.config.settings.initial_equity)) * Decimal(str(self.config.settings.risk_per_trade))
+        max_risk = Decimal(str(equity)) * Decimal(str(self.config.settings.risk_per_trade))
 
         # Position size from risk
         raw_quantity = max_risk / abs(entry_price - stop_loss)
@@ -258,10 +258,12 @@ class DynamicLeverageCalculator:
         best_decision = None
         rejected = []
 
+        available_margin_decimal = Decimal(str(available_margin))
+
         for lev in range(max_lev, 0, -1):
             required_margin = (quantity * entry_price) / lev
 
-            if required_margin <= self._get_available_margin():
+            if required_margin <= available_margin_decimal:
                 # Calculate liquidation
                 maint_margin = Decimal('0.005')
                 liq_price = entry_price * (1 - (1 / Decimal(lev)) + maint_margin)
