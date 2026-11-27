@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from jose import jwt
 
 from src.backend import main
+from src.backend.services.websocket_manager import ConnectionManager
 from src.backend.utils.config import Settings
 
 
@@ -137,3 +138,24 @@ def test_websocket_rejects_duplicate_bearer_protocols(websocket_setup):
         ):
             pass
     assert manager.called is False
+
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_negotiates_only_the_fixed_protocol():
+    class FakeWebSocket:
+        scope = {"subprotocols": ["quantum-trader", "bearer.not-a-real-token"]}
+        client = None
+
+        async def accept(self, subprotocol=None):
+            self.accepted_subprotocol = subprotocol
+
+        async def send_text(self, message):
+            self.last_message = message
+
+    websocket = FakeWebSocket()
+    manager = ConnectionManager(SimpleNamespace())
+    await manager.connect(websocket)
+
+    assert websocket.accepted_subprotocol == "quantum-trader"
+    assert '"type": "welcome"' in websocket.last_message

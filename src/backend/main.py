@@ -37,7 +37,7 @@ def create_app_with_services():
         # Only the fixed "quantum-trader" protocol is negotiated back.
         offered_protocols = websocket.scope.get("subprotocols", [])
         token_protocols = [value for value in offered_protocols if value.startswith("bearer.")]
-        if len(token_protocols) != 1:
+        if len(token_protocols) != 1 or "quantum-trader" not in offered_protocols:
             await websocket.close(code=4401, reason="Authentication required")
             return
 
