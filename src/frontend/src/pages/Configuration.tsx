@@ -188,7 +188,7 @@ export function ConfigurationPage() {
             exchanges={exchangeConfigs}
             forms={exchangeForms}
             onFormChange={setExchangeForms}
-            onSave={(data) => handleSave('exchanges', data)}
+            onSave={(data: Record<string, any>) => handleSave('exchanges', data)}
             onTest={testExchangeConnection}
           />
         </TabsContent>
@@ -571,7 +571,7 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                       id={`${exch.name}-enabled`}
                       type="checkbox"
                       checked={form.enabled}
-                      onChange={(e) => onFormChange(prev => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], enabled: e.target.checked } }))}
+                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], enabled: e.target.checked } }))}
                     />
                   </div>
                   <div className="space-y-2">
@@ -732,7 +732,7 @@ function TelegramTab({ form, onChange, onSave }: any) {
                     <input
                       type="checkbox"
                       checked={form.command_categories?.[cat] || false}
-                      onChange={(e) => onChange(prev => ({
+                      onChange={(e) => onChange((prev: Record<string, any>) => ({
                         ...prev,
                         command_categories: { ...prev.command_categories, [cat]: e.target.checked }
                       }))}
@@ -820,7 +820,7 @@ function ConfigFormSection({
           {/* Array Fields */}
           {Object.keys(arrayFields).length > 0 && (
             <div className="space-y-6">
-              {Object.entries(arrayFields).map(([key, config]) => (
+              {(Object.entries(arrayFields) as [string, any][]).map(([key, config]) => (
                 <ArrayFieldEditor
                   key={key}
                   label={config.label}
@@ -837,7 +837,7 @@ function ConfigFormSection({
           {/* Object Fields */}
           {Object.keys(objectFields).length > 0 && (
             <div className="space-y-6">
-              {Object.entries(objectFields).map(([key, config]) => (
+              {(Object.entries(objectFields) as [string, any][]).map(([key, config]) => (
                 <div key={key} className="p-4 rounded-lg bg-muted/50">
                   <h4 className="font-medium mb-4">{config.label}</h4>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -900,7 +900,7 @@ function ConfigFormSection({
 }
 
 function ArrayFieldEditor({ label, itemLabel, type, value, onChange, options }: any) {
-  const [items, setItems] = useState(value || []);
+  const [items, setItems] = useState<any[]>(value || []);
   const [newItem, setNewItem] = useState('');
 
   const addItem = () => {
