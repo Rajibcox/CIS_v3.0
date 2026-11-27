@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from src.backend.api.dependencies import get_db, get_strategy_service
 
 router = APIRouter(prefix="/api/v1/strategies", tags=["strategies"])
 
@@ -359,160 +360,206 @@ MOCK_INDICATORS = [
 
 
 # Routes
+def _strategy_payload(strategy):
+    """Serialize persisted strategy metadata without invented performance data."""
+    return {
+        "id": strategy.id,
+        "name": strategy.name,
+        "description": strategy.description,
+        "version": strategy.version,
+        "is_active": strategy.is_active,
+        "direction": (strategy.direction or "both").upper(),
+        "weight": strategy.weight,
+        "risk_multiplier": strategy.risk_multiplier,
+        "timeframes": strategy.timeframes or [],
+        "symbols": strategy.symbols or [],
+        "min_signal_score": strategy.min_signal_score,
+        "created_by": strategy.created_by,
+        "created_at": strategy.created_at,
+        "updated_at": strategy.updated_at,
+        "signal_count_24h": 0,
+        "win_rate_30d": 0.0,
+        "profit_factor_30d": 0.0,
+        "expectancy_30d": 0.0,
+    }
+
+
+def _database_unavailable(exc):
+    from sqlalchemy.exc import SQLAlchemyError
+    if isinstance(exc, SQLAlchemyError):
+        raise HTTPException(
+            status_code=503,
+            detail="Strategy database is unavailable or its schema is not initialized. No schema was created automatically.",
+        ) from exc
+    raise exc
+
+
 @router.get("", response_model=List[StrategyResponse])
 async def get_strategies(
     active_only: bool = Query(False),
-    include_performance: bool = Query(False)
+    include_performance: bool = Query(False),
+    db=Depends(get_db),
 ):
-    """Get all strategies"""
-    strategies = MOCK_STRATEGIES
-    if active_only:
-        strategies = [s for s in strategies if s["is_active"]]
-    return [StrategyResponse(**s) for s in strategies]
+    """List persisted strategies; performance fields remain neutral until computed."""
+    try:
+        from src.backend.models.database import Strategy
+        query = db.query(Strategy)
+        if active_only:
+            query = query.filter(Strategy.is_active.is_(True))
+        return [StrategyResponse(**_strategy_payload(item)) for item in query.order_by(Strategy.id).all()]
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.get("/{strategy_id}", response_model=StrategyResponse)
-async def get_strategy(strategy_id: int):
-    """Get strategy by ID"""
-    strategy = next((s for s in MOCK_STRATEGIES if s["id"] == strategy_id), None)
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-    return StrategyResponse(**strategy)
+async def get_strategy(strategy_id: int, db=Depends(get_db)):
+    """Get a persisted strategy by ID."""
+    try:
+        from src.backend.models.database import Strategy
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if strategy is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        return StrategyResponse(**_strategy_payload(strategy))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.post("", response_model=StrategyResponse, status_code=201)
-async def create_strategy(strategy: StrategyCreate):
-    """Create new strategy"""
-    new_id = max(s["id"] for s in MOCK_STRATEGIES) + 1
-    new_strategy = {
-        "id": new_id,
-        **strategy.dict(),
-        "created_by": "user",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "signal_count_24h": 0,
-        "win_rate_30d": 0.0,
-        "profit_factor_30d": 0.0,
-        "expectancy_30d": 0.0
-    }
-    MOCK_STRATEGIES.append(new_strategy)
-    return StrategyResponse(**new_strategy)
+async def create_strategy(
+    strategy: StrategyCreate,
+    db=Depends(get_db),
+    service=Depends(get_strategy_service),
+):
+    """Create a strategy and its validated rules in the database."""
+    try:
+        strategy_id = await service.create_strategy(
+            db=db,
+            name=strategy.name,
+            description=strategy.description,
+            version=strategy.version,
+            direction=strategy.direction,
+            weight=strategy.weight,
+            risk_multiplier=strategy.risk_multiplier,
+            timeframes=strategy.timeframes,
+            symbols=strategy.symbols,
+            min_signal_score=strategy.min_signal_score,
+            rule_set=strategy.rule_set.model_dump(mode="json", exclude_none=True),
+            created_by="user",
+        )
+        from src.backend.models.database import Strategy
+        persisted = db.query(Strategy).filter(Strategy.id == strategy_id).one()
+        return StrategyResponse(**_strategy_payload(persisted))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.put("/{strategy_id}", response_model=StrategyResponse)
-async def update_strategy(strategy_id: int, update: StrategyUpdate):
-    """Update strategy"""
-    strategy = next((s for s in MOCK_STRATEGIES if s["id"] == strategy_id), None)
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    update_data = update.dict(exclude_unset=True)
-    strategy.update(update_data)
-    strategy["updated_at"] = datetime.utcnow()
-
-    return StrategyResponse(**strategy)
+async def update_strategy(
+    strategy_id: int,
+    update: StrategyUpdate,
+    db=Depends(get_db),
+    service=Depends(get_strategy_service),
+):
+    """Update persisted strategy metadata and/or its rule configuration."""
+    try:
+        updates = update.model_dump(exclude_unset=True, exclude_none=True)
+        if "rule_set" in updates and updates["rule_set"] is not None:
+            updates["rule_set"] = update.rule_set.model_dump(mode="json", exclude_none=True)
+        updated = await service.update_strategy(db, strategy_id, updates)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        from src.backend.models.database import Strategy
+        persisted = db.query(Strategy).filter(Strategy.id == strategy_id).one()
+        return StrategyResponse(**_strategy_payload(persisted))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.delete("/{strategy_id}")
-async def delete_strategy(strategy_id: int):
-    """Delete strategy (soft delete - mark inactive)"""
-    strategy = next((s for s in MOCK_STRATEGIES if s["id"] == strategy_id), None)
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
+async def delete_strategy(
+    strategy_id: int,
+    db=Depends(get_db),
+    service=Depends(get_strategy_service),
+):
+    """Deactivate a persisted strategy without deleting its history."""
+    try:
+        if not await service.delete_strategy(db, strategy_id):
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        return {"success": True, "message": "Strategy deactivated"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
-    strategy["is_active"] = False
-    strategy["updated_at"] = datetime.utcnow()
 
-    return {"success": True, "message": "Strategy deactivated"}
-
-
-@router.post("/{strategy_id}/clone", response_model=StrategyResponse)
-async def clone_strategy(strategy_id: int, new_name: str):
-    """Clone strategy with new name"""
-    strategy = next((s for s in MOCK_STRATEGIES if s["id"] == strategy_id), None)
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    new_id = max(s["id"] for s in MOCK_STRATEGIES) + 1
-    new_strategy = {
-        "id": new_id,
-        "name": new_name,
-        "description": strategy["description"],
-        "version": "1.0.0",
-        "is_active": False,
-        "direction": strategy["direction"],
-        "weight": strategy["weight"],
-        "risk_multiplier": strategy["risk_multiplier"],
-        "timeframes": strategy["timeframes"],
-        "symbols": strategy["symbols"],
-        "min_signal_score": strategy["min_signal_score"],
-        "created_by": "user",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "signal_count_24h": 0,
-        "win_rate_30d": 0.0,
-        "profit_factor_30d": 0.0,
-        "expectancy_30d": 0.0
-    }
-    MOCK_STRATEGIES.append(new_strategy)
-    return StrategyResponse(**new_strategy)
+@router.post("/{strategy_id}/clone", response_model=StrategyResponse, status_code=201)
+async def clone_strategy(
+    strategy_id: int,
+    new_name: str = Query(..., min_length=1, max_length=100),
+    db=Depends(get_db),
+    service=Depends(get_strategy_service),
+):
+    """Clone a persisted strategy and its rule rows."""
+    try:
+        new_id = await service.clone_strategy(db, strategy_id, new_name)
+        if not new_id:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        from src.backend.models.database import Strategy
+        cloned = db.query(Strategy).filter(Strategy.id == new_id).one()
+        return StrategyResponse(**_strategy_payload(cloned))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.get("/{strategy_id}/performance", response_model=StrategyPerformance)
 async def get_strategy_performance(
     strategy_id: int,
-    days: int = Query(30, ge=1, le=365)
+    days: int = Query(30, ge=1, le=365),
+    db=Depends(get_db),
 ):
-    """Get strategy performance metrics"""
-    strategy = next((s for s in MOCK_STRATEGIES if s["id"] == strategy_id), None)
-    if not strategy:
-        raise HTTPException(status_code=404, detail="Strategy not found")
-
-    # Mock performance data
-    return StrategyPerformance(
-        strategy_id=strategy_id,
-        strategy_name=strategy["name"],
-        version=strategy["version"],
-        period_days=days,
-        total_signals=150,
-        executed_signals=87,
-        win_rate=58.5,
-        loss_rate=41.5,
-        profit_factor=1.45,
-        expectancy=0.32,
-        avg_win=1.25,
-        avg_loss=-0.85,
-        avg_r_multiple=0.42,
-        max_drawdown=8.5,
-        sharpe_ratio=1.2,
-        sortino_ratio=1.8,
-        by_symbol={
-            "BTCUSDT": {"signals": 45, "win_rate": 60.0, "profit_factor": 1.5},
-            "ETHUSDT": {"signals": 38, "win_rate": 58.0, "profit_factor": 1.4},
-            "SOLUSDT": {"signals": 22, "win_rate": 55.0, "profit_factor": 1.3},
-        },
-        by_timeframe={
-            "15m": {"signals": 60, "win_rate": 55.0, "profit_factor": 1.3},
-            "1h": {"signals": 70, "win_rate": 60.0, "profit_factor": 1.5},
-            "4h": {"signals": 20, "win_rate": 65.0, "profit_factor": 1.6},
-        },
-        by_direction={
-            "LONG": {"signals": 95, "win_rate": 60.0, "profit_factor": 1.5},
-            "SHORT": {"signals": 55, "win_rate": 55.0, "profit_factor": 1.3},
-        },
-        by_regime={
-            "trending": {"signals": 80, "win_rate": 65.0, "profit_factor": 1.7},
-            "ranging": {"signals": 50, "win_rate": 50.0, "profit_factor": 1.1},
-            "volatile": {"signals": 20, "win_rate": 45.0, "profit_factor": 1.0},
-        },
-        equity_curve=[
-            {"date": "2026-10-27", "equity": 100.0},
-            {"date": "2026-10-28", "equity": 101.2},
-            {"date": "2026-10-29", "equity": 100.8},
-            {"date": "2026-10-30", "equity": 102.5},
-            {"date": "2026-10-31", "equity": 103.1},
-        ]
-    )
+    """Return neutral metrics until real persisted performance data is available."""
+    try:
+        from src.backend.models.database import Strategy
+        strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
+        if strategy is None:
+            raise HTTPException(status_code=404, detail="Strategy not found")
+        return StrategyPerformance(
+            strategy_id=strategy.id,
+            strategy_name=strategy.name,
+            version=strategy.version,
+            period_days=days,
+            total_signals=0,
+            executed_signals=0,
+            win_rate=0.0,
+            loss_rate=0.0,
+            profit_factor=0.0,
+            expectancy=0.0,
+            avg_win=0.0,
+            avg_loss=0.0,
+            avg_r_multiple=0.0,
+            max_drawdown=0.0,
+            by_symbol={},
+            by_timeframe={},
+            by_direction={},
+            by_regime={},
+            equity_curve=[],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _database_unavailable(exc)
 
 
 @router.get("/{strategy_id}/versions", response_model=List[StrategyVersion])

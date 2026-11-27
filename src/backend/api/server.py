@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from src.backend.api.router import api_router, ws_router
 from src.backend.services import initialize_services, shutdown_services
@@ -37,6 +39,11 @@ def create_app(config: Config = None) -> FastAPI:
     if config is None:
         config = Config()
 
+    database_url = config.settings.database_url
+    connect_args = {\"check_same_thread\": False} if database_url.startswith(\"sqlite\") else {}
+    engine = create_engine(database_url, connect_args=connect_args, pool_pre_ping=True)
+    SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Initialize and shut down the service container exactly once."""
@@ -45,7 +52,7 @@ def create_app(config: Config = None) -> FastAPI:
         print(f"Configuration loaded from: {config.settings.project_root}")
 
         try:
-            await initialize_services(config)
+            app.state.services = await initialize_services(config)
             yield
         finally:
             # initialize_services may fail after creating some services.
@@ -66,6 +73,8 @@ def create_app(config: Config = None) -> FastAPI:
 
     # Keep the configuration available to routes and extensions.
     app.state.config = config
+    app.state.engine = engine
+    app.state.session_factory = SessionFactory
 
     # CORS configuration
     app.add_middleware(

@@ -423,6 +423,8 @@ class StrategyService:
         strategy.is_active = False
         strategy.updated_at = datetime.utcnow()
         db.commit()
+        self.engine._strategy_cache.pop(strategy_id, None)
+        self.engine._rule_cache.pop(strategy_id, None)
         return True
 
     async def clone_strategy(self, db: Session, strategy_id: int, new_name: str) -> int:
