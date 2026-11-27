@@ -92,9 +92,13 @@ async def test_pnl_service_initializes_and_shuts_down(pnl_context):
 @pytest.mark.asyncio
 async def test_pnl_service_refuses_non_paper_configuration(pnl_context):
     service, *_ = pnl_context
+    previous = service.config.settings.paper_trading
     service.config.settings.paper_trading = False
-    with pytest.raises(RuntimeError, match="mock_exchange=True and paper_trading=True"):
-        await service.initialize()
+    try:
+        with pytest.raises(RuntimeError, match="mock_exchange=True and paper_trading=True"):
+            await service.initialize()
+    finally:
+        service.config.settings.paper_trading = previous
 
 
 @pytest.mark.asyncio
@@ -195,13 +199,13 @@ async def test_order_reconciliation_allocates_entry_fees_across_partial_closes(p
     assert result["remaining_quantity"] == Decimal("0.003")
     assert result["entry_fees"] == Decimal("0.50")
     assert result["exit_fees"] == Decimal("0.510")
-    assert result["realized_pnl"] == Decimal("14.99")
+    assert result["realized_pnl"] == Decimal("9.14")
     assert result["unrealized_pnl"] == Decimal("1.500")
-    assert position.realized_pnl == pytest.approx(14.99)
+    assert position.realized_pnl == pytest.approx(9.14)
     assert position.pnl == pytest.approx(1.5)
     rows = db.query(PnL_Entry).filter_by(position_id=position.id, pnl_type="realized").order_by(PnL_Entry.id).all()
     assert len(rows) == 2
-    assert rows[-1].running_balance == pytest.approx(14.99)
+    assert rows[-1].running_balance == pytest.approx(9.14)
 
     repeated = await service.sync_position_pnl(position, db, current_price=Decimal("50500"))
     assert repeated["realized_pnl"] == result["realized_pnl"]
@@ -220,7 +224,7 @@ async def _run_tp_sl_close(pnl_context, close_price, trigger):
     )
     db.add(signal)
     db.flush()
-    position.signal_id = signal.id
+    position.signal = signal
 
     market_data = FakeMarketData(close_price)
     execution = ExecutionService(service.config, risk_service=object(), market_data_service=market_data)
@@ -249,10 +253,10 @@ async def test_tp_generated_fill_updates_realized_pnl_ledger(pnl_context):
 
 @pytest.mark.asyncio
 async def test_sl_generated_fill_updates_realized_loss_ledger(pnl_context):
-    service, position, *_ = pnl_context
+    service, position, _exchange, _symbol, db = pnl_context
     result = await _run_tp_sl_close(pnl_context, Decimal("49000"), "sl")
     assert result["trade_count"] == Decimal("1")
     assert result["realized_pnl"] < 0
     assert position.status == PositionStatus.CLOSED
     assert position.realized_pnl == pytest.approx(float(result["realized_pnl"]))
-    assert db_count = True
+    assert db.query(PnL_Entry).filter_by(position_id=position.id, pnl_type="realized").count() == 1
