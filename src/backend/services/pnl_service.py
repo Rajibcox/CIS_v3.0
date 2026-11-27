@@ -281,19 +281,24 @@ class PnLAnalytics:
     def calculate_performance_metrics(self, trades: List[Dict], equity_curve: List[Decimal], period_days: int = 30) -> PerformanceMetrics:
         summary = self.calculate_pnl_summary(trades, period_days)
         zero = Decimal("0")
+        values = [_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades]
+        wins = [value for value in values if value > 0]
+        losses = [value for value in values if value <= 0]
+        drawdown = self.engine.calculate_drawdown(equity_curve)
         return PerformanceMetrics(
             total_return_pct=zero, annualized_return_pct=zero, volatility_pct=zero,
             sharpe_ratio=None, sortino_ratio=None, calmar_ratio=None,
-            max_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["max_drawdown"],
-            avg_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["avg_drawdown"],
-            max_drawdown_duration_days=self.engine.calculate_drawdown(equity_curve)["max_duration_days"],
-            current_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["current_drawdown"],
+            max_drawdown_pct=drawdown["max_drawdown"],
+            avg_drawdown_pct=drawdown["avg_drawdown"],
+            max_drawdown_duration_days=drawdown["max_duration_days"],
+            current_drawdown_pct=drawdown["current_drawdown"],
             total_trades=summary.total_trades, win_rate=summary.win_rate,
             profit_factor=summary.profit_factor, expectancy=summary.expectancy,
-            avg_win=sum((v for v in (_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades) if v > 0), zero) / Decimal(len([t for t in trades if _decimal(t.get("net_pnl", 0), "net_pnl") > 0])) if any(_decimal(t.get("net_pnl", 0), "net_pnl") > 0 for t in trades) else zero,
-            avg_loss=sum((v for v in (_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades) if v <= 0), zero) / Decimal(len([t for t in trades if _decimal(t.get("net_pnl", 0), "net_pnl") <= 0])) if any(_decimal(t.get("net_pnl", 0), "net_pnl") <= 0 for t in trades) else zero,
+            avg_win=sum(wins, zero) / Decimal(len(wins)) if wins else zero,
+            avg_loss=sum(losses, zero) / Decimal(len(losses)) if losses else zero,
             avg_r_multiple=summary.avg_r_multiple,
-            largest_win=summary.best_trade, largest_loss=summary.worst_trade,
+            largest_win=max(wins) if wins else zero,
+            largest_loss=min(losses) if losses else zero,
             consecutive_wins=0, consecutive_losses=0, risk_adjusted_return=zero,
             ulcer_index=zero, sterling_ratio=zero,
         )
@@ -332,6 +337,7 @@ class PnLService:
     def __init__(self, config: Config):
         self.config = config
         self.calculator = PnLCalculator(config)
+        self.analytics = PnLAnalytics(config)
         self.logger = logging.getLogger(__name__)
         self._running = False
 
