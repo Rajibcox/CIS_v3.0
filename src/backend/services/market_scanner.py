@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from src.backend.models.database import (
     Exchange, Symbol, MarketCandle, MarketRegime
 )
-from src.backend.services.market_data_service import MarketDataService, TickerData
+from src.backend.services.market_data_service import MarketDataService, TickerData, CandleData
 from src.backend.services.historical_data_service import HistoricalDataService
 from src.backend.utils.config import Config
 from src.backend.utils.logger import get_logger, log_service_event
@@ -260,16 +260,34 @@ class MarketScanner:
 
             for symbol in adapter._symbol_map.keys():
                 try:
-                    # Get ticker
-                    ticker = await adapter.fetch_ticker(symbol)
-                    if not ticker:
+                    # Normalize adapter dictionaries into the dataclasses
+                    # consumed by the scanner's indicator and filter pipeline.
+                    ticker_data = await adapter.fetch_ticker(symbol)
+                    if not ticker_data:
                         continue
+                    ticker = (
+                        TickerData(**ticker_data)
+                        if isinstance(ticker_data, dict)
+                        else ticker_data
+                    )
 
-                    # Get candles for multiple timeframes
+                    # Get candles for multiple timeframes and normalize them.
                     candles_15m = await adapter.fetch_candles(symbol, '15m', limit=200)
                     candles_1h = await adapter.fetch_candles(symbol, '1h', limit=200)
                     candles_4h = await adapter.fetch_candles(symbol, '4h', limit=200)
                     candles_1d = await adapter.fetch_candles(symbol, '1d', limit=200)
+                    candles_15m = [
+                        CandleData(**c) if isinstance(c, dict) else c for c in candles_15m
+                    ]
+                    candles_1h = [
+                        CandleData(**c) if isinstance(c, dict) else c for c in candles_1h
+                    ]
+                    candles_4h = [
+                        CandleData(**c) if isinstance(c, dict) else c for c in candles_4h
+                    ]
+                    candles_1d = [
+                        CandleData(**c) if isinstance(c, dict) else c for c in candles_1d
+                    ]
 
                     # Get orderbook
                     orderbook = await adapter.fetch_orderbook(symbol, depth=20)
@@ -416,8 +434,14 @@ class MarketScanner:
             if not btc_candles or not sym_candles or len(btc_candles) < 20 or len(sym_candles) < 20:
                 return 0.0
 
-            btc_returns = np.diff([float(c.close) for c in btc_candles[-20:]])
-            sym_returns = np.diff([float(c.close) for c in sym_candles[-20:]])
+            btc_returns = np.diff([
+                float(c.get("close") if isinstance(c, dict) else c.close)
+                for c in btc_candles[-20:]
+            ])
+            sym_returns = np.diff([
+                float(c.get("close") if isinstance(c, dict) else c.close)
+                for c in sym_candles[-20:]
+            ])
 
             if len(btc_returns) > 10 and len(sym_returns) > 10:
                 correlation = np.corrcoef(btc_returns, sym_returns)[0, 1]
