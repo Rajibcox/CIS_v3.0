@@ -18,6 +18,16 @@ from src.backend.utils.config import Config
 from src.backend.utils.logger import setup_logging
 
 
+# The built frontend is served by this API (same-origin). These two exact
+# origins are needed only when running the Vite development server locally.
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE"]
+CORS_ALLOWED_HEADERS = ["Authorization", "Content-Type", "Accept"]
+
+
 def create_app(config: Config = None) -> FastAPI:
     """Create and configure the FastAPI application."""
 
@@ -64,10 +74,10 @@ def create_app(config: Config = None) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Narrowed separately in R0-4.
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=CORS_ALLOWED_ORIGINS,
+        allow_credentials=False,
+        allow_methods=CORS_ALLOWED_METHODS,
+        allow_headers=CORS_ALLOWED_HEADERS,
     )
 
     # Login is public; /me performs its own strict bearer-token validation.
