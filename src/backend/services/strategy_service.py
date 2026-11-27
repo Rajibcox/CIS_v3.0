@@ -84,13 +84,139 @@ class StrategyEngine:
         self._rule_cache: Dict[int, List[StrategyRule]] = {}
 
     def load_strategy(self, strategy: Strategy, db: Session):
-        """Load strategy into cache"""
-        self._strategy_cache[strategy.id] = strategy
+        """Load an active strategy and its canonical JSON rule groups."""
+        if not strategy.is_active:
+            self._strategy_cache.pop(strategy.id, None)
+            self._rule_cache.pop(strategy.id, None)
+            return
+
         rules = db.query(StrategyRule).filter(
             StrategyRule.strategy_id == strategy.id,
-            StrategyRule.is_active == True
+            StrategyRule.is_active.is_(True)
         ).all()
+        # Validate persisted configuration before making it eligible for evaluation.
+        for rule in rules:
+            self._validate_rule_group(rule.rule_config)
+        self._strategy_cache[strategy.id] = strategy
         self._rule_cache[strategy.id] = rules
+
+    def load_active_strategies(self, db: Session) -> int:
+        """Refresh the in-memory cache from persisted active strategies."""
+        self._strategy_cache.clear()
+        self._rule_cache.clear()
+        strategies = db.query(Strategy).filter(Strategy.is_active.is_(True)).all()
+        for strategy in strategies:
+            self.load_strategy(strategy, db)
+        return len(strategies)
+
+    @staticmethod
+    def _indicator_key(indicator: Any) -> str:
+        """Map supported visual-builder indicators to scanner scalar keys."""
+        if not isinstance(indicator, dict):
+            raise ValueError("indicator must be an object")
+        name = str(indicator.get("name", "")).upper()
+        params = indicator.get("params") or {}
+        source = indicator.get("source", "close")
+        if source != "close":
+            raise ValueError(f"Unsupported indicator source: {source}")
+
+        fixed = {
+            "RSI": ("rsi", {"period": 14}),
+            "MACD": ("macd", {"fast": 12, "slow": 26, "signal": 9}),
+            "ATR": ("atr", {"period": 14}),
+            "ADX": ("adx", {"period": 14}),
+            "VWAP": ("vwap", {"reset_period": "daily"}),
+        }
+        if name == "EMA":
+            period = params.get("period", 9)
+            if period not in (9, 21, 50):
+                raise ValueError(f"EMA period {period} is not available from scanner data")
+            expected = {"period": period}
+            key = f"ema_{period}"
+        elif name in fixed:
+            key, expected = fixed[name]
+        else:
+            raise ValueError(f"Unsupported scanner indicator: {name or '<missing>'}")
+
+        if params and params != expected:
+            raise ValueError(f"Unsupported parameters for {name}: {params}")
+        return key
+
+    @classmethod
+    def _validate_rule_group(cls, group: Any, depth: int = 0) -> None:
+        """Reject malformed or unsupported rules before persistence/evaluation."""
+        if depth > 12:
+            raise ValueError("Rule groups exceed maximum nesting depth")
+        if not isinstance(group, dict):
+            raise ValueError("Rule group must be an object")
+        operator = group.get("operator", "AND")
+        if hasattr(operator, "value"):
+            operator = operator.value
+        if operator not in ("AND", "OR"):
+            raise ValueError(f"Unsupported logical operator: {operator}")
+        conditions = group.get("conditions") or []
+        groups = group.get("groups") or []
+        if not isinstance(conditions, list) or not isinstance(groups, list):
+            raise ValueError("conditions and groups must be arrays")
+        if not conditions and not groups:
+            raise ValueError("Rule group cannot be empty")
+        for condition in conditions:
+            if not isinstance(condition, dict):
+                raise ValueError("Rule condition must be an object")
+            # Only the scanner-backed indicator-vs-number contract is executable.
+            if set(condition) - {"indicator", "operator", "threshold"}:
+                raise ValueError("Unsupported rule condition fields")
+            cls._indicator_key(condition.get("indicator"))
+            comparison = condition.get("operator")
+            if hasattr(comparison, "value"):
+                comparison = comparison.value
+            if comparison not in (">", "<", ">=", "<=", "=="):
+                raise ValueError(f"Unsupported comparison operator: {comparison}")
+            threshold = condition.get("threshold")
+            if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+                raise ValueError("Rule threshold must be numeric")
+        for child in groups:
+            cls._validate_rule_group(child, depth + 1)
+
+    @staticmethod
+    def _group_matches(group: Dict, indicators: Dict[str, float], timeframe: str) -> bool:
+        """Evaluate nested AND/OR groups without treating missing data as a match."""
+        results = []
+        for condition in group.get("conditions") or []:
+            indicator = condition["indicator"]
+            key = StrategyEngine._indicator_key(indicator)
+            timeframe_key = f"{key}_{timeframe}"
+            # MarketScanner currently calculates its scalar indicator set from 1h candles.
+            if timeframe_key in indicators:
+                value = indicators[timeframe_key]
+            elif timeframe == "1h" and key in indicators:
+                value = indicators[key]
+            else:
+                value = None
+
+            threshold = float(condition["threshold"])
+            operator = condition["operator"]
+            if value is None:
+                matched = False
+            elif operator == ">":
+                matched = value > threshold
+            elif operator == "<":
+                matched = value < threshold
+            elif operator == ">=":
+                matched = value >= threshold
+            elif operator == "<=":
+                matched = value <= threshold
+            else:
+                matched = abs(value - threshold) < 0.0001
+            results.append(matched)
+
+        for child in group.get("groups") or []:
+            results.append(StrategyEngine._group_matches(child, indicators, timeframe))
+
+        if not results:
+            return False
+        operator = group.get("operator", "AND")
+        return all(results) if operator == "AND" else any(results)
 
     def evaluate_entry(
         self,
@@ -99,25 +225,23 @@ class StrategyEngine:
         timeframe: str,
         direction: str = "BOTH"
     ) -> tuple:
-        """
-        Evaluate entry conditions for a strategy
-        Returns: (should_enter: bool, signal_data: dict)
-        """
-        if strategy_id not in self._rule_cache:
+        """Evaluate persisted entry rules; missing rules/data never qualify."""
+        strategy = self._strategy_cache.get(strategy_id)
+        rules = self._rule_cache.get(strategy_id, [])
+        if strategy is None or not strategy.is_active:
             return False, {}
-
-        rules = self._rule_cache[strategy_id]
-        entry_rules = [r for r in rules if r.rule_type == 'entry']
-
+        entry_rules = [rule for rule in rules if rule.rule_type == "entry"]
         if not entry_rules:
             return False, {}
 
-        # Evaluate rule groups
-        should_enter, signal_data = self._evaluate_rules(
-            entry_rules, indicators, timeframe, direction
-        )
-
-        return should_enter, signal_data
+        groups = [rule.rule_config for rule in entry_rules]
+        if direction.upper() == "LONG":
+            groups.extend(rule.rule_config for rule in rules if rule.rule_type == "long")
+        elif direction.upper() == "SHORT":
+            groups.extend(rule.rule_config for rule in rules if rule.rule_type == "short")
+        if not all(self._group_matches(group, indicators, timeframe) for group in groups):
+            return False, {}
+        return True, {"matched_rule_types": ["entry"] + ([direction.lower()] if direction.upper() in ("LONG", "SHORT") else [])}
 
     def evaluate_exit(
         self,
@@ -126,85 +250,17 @@ class StrategyEngine:
         position: Any,
         timeframe: str
     ) -> tuple:
-        """
-        Evaluate exit conditions for a strategy
-        Returns: (should_exit: bool, exit_reason: str)
-        """
-        if strategy_id not in self._rule_cache:
-            return False, ""
-
-        rules = self._rule_cache[strategy_id]
-        exit_rules = [r for r in rules if r.rule_type == 'exit']
-
+        """Evaluate persisted exit rules."""
+        rules = self._rule_cache.get(strategy_id, [])
+        exit_rules = [rule for rule in rules if rule.rule_type == "exit"]
         if not exit_rules:
             return False, ""
-
-        should_exit, exit_reason = self._evaluate_rules(
-            exit_rules, indicators, timeframe, position.direction
+        matched = all(
+            self._group_matches(rule.rule_config, indicators, timeframe)
+            for rule in exit_rules
         )
+        return matched, "strategy_exit" if matched else ""
 
-        return should_exit, exit_reason
-
-    def _evaluate_rules(
-        self,
-        rules: List,
-        indicators: Dict[str, float],
-        timeframe: str,
-        direction: str
-    ) -> tuple:
-        """Evaluate a list of rules"""
-        # Group rules by group_id
-        groups = {}
-        for rule in rules:
-            if rule.group_id not in groups:
-                groups[rule.group_id] = []
-            groups[rule.group_id].append(rule)
-
-        # Each group is OR'd together, groups are AND'd
-        group_results = []
-        for group_id, group_rules in groups.items():
-            group_result = False
-            for rule in group_rules:
-                if self._evaluate_condition(rule, indicators, timeframe):
-                    group_result = True
-                    break  # OR within group
-            group_results.append(group_result)
-
-        # All groups must pass (AND)
-        should_enter = all(group_results)
-
-        return should_enter, {}
-
-    def _evaluate_condition(self, rule: StrategyRule, indicators: Dict[str, float], timeframe: str) -> bool:
-        """Evaluate a single rule condition"""
-        indicator_key = f"{rule.indicator}_{timeframe}"
-
-        if indicator_key not in indicators:
-            # Try without timeframe
-            if rule.indicator not in indicators:
-                return False
-            indicator_key = rule.indicator
-
-        value = indicators[indicator_key]
-        threshold = rule.threshold
-
-        if rule.operator == '>':
-            return value > threshold
-        elif rule.operator == '<':
-            return value < threshold
-        elif rule.operator == '>=':
-            return value >= threshold
-        elif rule.operator == '<=':
-            return value <= threshold
-        elif rule.operator == '==':
-            return abs(value - threshold) < 0.0001
-        elif rule.operator == 'crosses_above':
-            # Would need previous value
-            return False
-        elif rule.operator == 'crosses_below':
-            return False
-
-        return False
 
 
 class StrategyService:
@@ -228,6 +284,41 @@ class StrategyService:
         self.logger.info("Shutting down Strategy Service...")
         self._running = False
 
+    @staticmethod
+    def _plain_rule_set(rule_set: Any) -> Dict:
+        if hasattr(rule_set, "model_dump"):
+            return rule_set.model_dump(mode="json", exclude_none=True)
+        if hasattr(rule_set, "dict"):
+            return rule_set.dict(exclude_none=True)
+        if not isinstance(rule_set, dict):
+            raise ValueError("rule_set must be an object")
+        return rule_set
+
+    @classmethod
+    def _normalize_rule_set(cls, rule_set: Any) -> Dict[str, Dict]:
+        """Normalize API *_rules keys to persisted rule_type values."""
+        data = cls._plain_rule_set(rule_set)
+        aliases = {
+            "entry_rules": "entry", "exit_rules": "exit",
+            "long_rules": "long", "short_rules": "short",
+            # Accept the service's original internal names for compatibility.
+            "entry": "entry", "exit": "exit", "long": "long", "short": "short",
+        }
+        normalized = {}
+        for key, value in data.items():
+            if key not in aliases:
+                raise ValueError(f"Unsupported rule set key: {key}")
+            if value is None:
+                continue
+            StrategyEngine._validate_rule_group(value)
+            rule_type = aliases[key]
+            if rule_type in normalized:
+                raise ValueError(f"Duplicate rule set for {rule_type}")
+            normalized[rule_type] = value
+        if "entry" not in normalized:
+            raise ValueError("An entry rule group is required")
+        return normalized
+
     async def create_strategy(
         self,
         db: Session,
@@ -243,44 +334,32 @@ class StrategyService:
         rule_set: Dict,
         created_by: str = "system"
     ) -> int:
-        """Create a new strategy"""
+        """Persist strategy metadata and canonical nested rule JSON atomically."""
+        normalized_rules = self._normalize_rule_set(rule_set)
         strategy = Strategy(
-            name=name,
-            description=description,
-            version=version,
-            direction=direction,
-            weight=weight,
-            risk_multiplier=risk_multiplier,
-            timeframes=timeframes,
-            symbols=symbols,
-            min_signal_score=min_signal_score,
-            is_active=True,
-            created_by=created_by,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            name=name, description=description, version=version,
+            direction=direction.lower(), weight=weight,
+            risk_multiplier=risk_multiplier, timeframes=timeframes,
+            symbols=symbols, min_signal_score=min_signal_score,
+            is_active=True, created_by=created_by,
+            created_at=datetime.utcnow(), updated_at=datetime.utcnow()
         )
-
-        db.add(strategy)
-        db.flush()
-
-        # Create rule sets
-        rule_sets = [
-            ('entry', 'entry'),
-            ('exit', 'exit'),
-            ('long', 'long'),
-            ('short', 'short')
-        ]
-
-        for key, rule_type in rule_sets:
-            if key in rule_set and rule_set[key]:
-                rule_set_obj = StrategyRule(
+        try:
+            db.add(strategy)
+            db.flush()
+            for rule_type, rule_config in normalized_rules.items():
+                db.add(StrategyRule(
                     strategy_id=strategy.id,
                     rule_type=rule_type,
-                    rule_config=rule_set[key]
-                )
-                db.add(rule_set_obj)
-
-        db.commit()
+                    rule_config=rule_config,
+                    is_active=True
+                ))
+            db.commit()
+            db.refresh(strategy)
+        except Exception:
+            db.rollback()
+            raise
+        self.engine.load_strategy(strategy, db)
         return strategy.id
 
     async def update_strategy(
@@ -289,17 +368,50 @@ class StrategyService:
         strategy_id: int,
         updates: Dict
     ) -> bool:
-        """Update strategy"""
+        """Update strategy metadata and replace rule JSON in one transaction."""
         strategy = db.query(Strategy).filter(Strategy.id == strategy_id).first()
         if not strategy:
             return False
-
-        for key, value in updates.items():
-            if hasattr(strategy, key):
+        allowed = {
+            "name", "description", "version", "is_active", "direction",
+            "weight", "risk_multiplier", "timeframes", "symbols",
+            "min_signal_score"
+        }
+        unknown = set(updates) - allowed - {"rule_set"}
+        if unknown:
+            raise ValueError(f"Unsupported strategy fields: {sorted(unknown)}")
+        normalized_rules = None
+        if "rule_set" in updates:
+            normalized_rules = self._normalize_rule_set(updates["rule_set"])
+        try:
+            for key, value in updates.items():
+                if key == "rule_set":
+                    continue
+                if key == "direction" and isinstance(value, str):
+                    value = value.lower()
                 setattr(strategy, key, value)
-
-        strategy.updated_at = datetime.utcnow()
-        db.commit()
+            if normalized_rules is not None:
+                db.query(StrategyRule).filter(
+                    StrategyRule.strategy_id == strategy_id
+                ).delete(synchronize_session=False)
+                for rule_type, rule_config in normalized_rules.items():
+                    db.add(StrategyRule(
+                        strategy_id=strategy_id,
+                        rule_type=rule_type,
+                        rule_config=rule_config,
+                        is_active=True
+                    ))
+            strategy.updated_at = datetime.utcnow()
+            db.commit()
+            db.refresh(strategy)
+        except Exception:
+            db.rollback()
+            raise
+        if strategy.is_active:
+            self.engine.load_strategy(strategy, db)
+        else:
+            self.engine._strategy_cache.pop(strategy_id, None)
+            self.engine._rule_cache.pop(strategy_id, None)
         return True
 
     async def delete_strategy(self, db: Session, strategy_id: int) -> bool:
@@ -396,6 +508,7 @@ class StrategyService:
                 'weight': s.weight,
                 'risk_multiplier': s.risk_multiplier,
                 'timeframes': s.timeframes,
+                'symbols': s.symbols,
                 'min_signal_score': s.min_signal_score,
                 'created_by': s.created_by,
                 'created_at': s.created_at,
