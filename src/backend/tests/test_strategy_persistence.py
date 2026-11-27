@@ -188,6 +188,14 @@ def test_take_profit_target_methods_accept_valid_method_specific_parameters(
         {"method": "atr_multiple", "parameters": {"atr_period": 14}},
         {"method": "fixed_percentage", "parameters": {"percentage": 0}},
         {"method": "fixed_percentage", "parameters": {"percentage": 1.0, "extra": True}},
+        {"method": "risk_reward", "parameters": {"r_multiple": "1.5"}},
+        {"method": "risk_reward", "parameters": {"r_multiple": True}},
+        {"method": "atr_multiple", "parameters": {"atr_period": "14", "atr_multiplier": 2.0}},
+        {"method": "atr_multiple", "parameters": {"atr_period": True, "atr_multiplier": 2.0}},
+        {"method": "atr_multiple", "parameters": {"atr_period": 14, "atr_multiplier": "2.0"}},
+        {"method": "atr_multiple", "parameters": {"atr_period": 14, "atr_multiplier": False}},
+        {"method": "fixed_percentage", "parameters": {"percentage": "1.0"}},
+        {"method": "fixed_percentage", "parameters": {"percentage": True}},
     ],
 )
 def test_take_profit_target_rejects_unsupported_or_invalid_method_parameters(target):

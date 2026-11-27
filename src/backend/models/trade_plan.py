@@ -6,7 +6,7 @@ implement price calculations, qualify signals, or authorize order execution.
 from math import isclose, isfinite
 from typing import Annotated, Any, Dict, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, model_validator
 
 
 class TradePlanModel(BaseModel):
@@ -73,7 +73,7 @@ class TradePlanStopLoss(TradePlanModel):
 class RiskRewardTakeProfitParameters(TradePlanModel):
     """Target distance expressed as a multiple of initial stop risk."""
 
-    r_multiple: float = Field(..., gt=0.0, le=50.0)
+    r_multiple: StrictFloat = Field(..., gt=0.0, le=50.0)
 
     @model_validator(mode="after")
     def validate_finite_multiple(self):
@@ -85,8 +85,8 @@ class RiskRewardTakeProfitParameters(TradePlanModel):
 class ATRMultipleTakeProfitParameters(TradePlanModel):
     """Target distance expressed as a strategy-configured ATR multiple."""
 
-    atr_period: int = Field(..., ge=2, le=200)
-    atr_multiplier: float = Field(..., gt=0.0, le=50.0)
+    atr_period: StrictInt = Field(..., ge=2, le=200)
+    atr_multiplier: StrictFloat = Field(..., gt=0.0, le=50.0)
 
     @model_validator(mode="after")
     def validate_finite_multiplier(self):
@@ -98,7 +98,7 @@ class ATRMultipleTakeProfitParameters(TradePlanModel):
 class FixedPercentageTakeProfitParameters(TradePlanModel):
     """Target distance expressed as an explicit percentage from entry."""
 
-    percentage: float = Field(..., gt=0.0, le=100.0)
+    percentage: StrictFloat = Field(..., gt=0.0, le=100.0)
 
     @model_validator(mode="after")
     def validate_finite_percentage(self):
