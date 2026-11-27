@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, object_session
 
 from src.backend.models.database import (
     OrderStatus, OrderType as DBOrderType, PositionStatus, TP_SL_Stage,
-    TPStageStatus,
+    TPStageStatus, TPStageType,
 )
 from src.backend.services.execution_service import (
     ExecutionService, OrderParams, OrderSide, OrderType,
@@ -188,7 +188,7 @@ class TPSLManager:
         if row is None:
             row = TP_SL_Stage(
                 position_id=self.position.id,
-                stage_type=db_status,
+                stage_type=TPStageType.SL if stage_number == 0 else TPStageType.TP,
                 stage_number=stage_number,
                 target_price=float(target) if target is not None else None,
                 quantity=float(quantity),
@@ -197,7 +197,7 @@ class TPSLManager:
             self.db.add(row)
             self.state["db_stages"][stage_number] = row
         else:
-            row.stage_type = db_status
+            row.stage_type = TPStageType.SL if stage_number == 0 else TPStageType.TP
             row.status = db_status
             row.target_price = float(target) if target is not None else None
             row.quantity = float(quantity)

@@ -10,7 +10,7 @@ import pytest
 
 from src.backend.models.database import (
     Exchange, Order, Position, PositionStatus, Signal, SignalDirection,
-    Strategy, Symbol, TP_SL_Stage, TPStageStatus,
+    Strategy, Symbol, TP_SL_Stage, TPStageStatus, TPStageType,
 )
 from src.backend.services.execution_service import ExecutionService
 from src.backend.services.tp_sl_service import TPSLService
@@ -105,6 +105,10 @@ async def test_initial_stop_loss_and_take_profit_targets_are_persisted(tp_contex
         assert [rows[i].target_price for i in (1, 2, 3)] == [51000, 52000, 53000]
         assert [rows[i].quantity for i in (1, 2, 3, 4)] == pytest.approx([0.004, 0.003, 0.002, 0.001])
         assert all(row.status == TPStageStatus.PENDING for row in rows)
+        assert [row.stage_type for row in rows] == [
+            TPStageType.SL, TPStageType.TP, TPStageType.TP,
+            TPStageType.TP, TPStageType.TP,
+        ]
     finally:
         await service.shutdown()
 
@@ -133,6 +137,8 @@ async def test_tp_trigger_executes_paper_close_and_updates_position_and_database
         assert position.realized_pnl > 0
         stage = db.query(TP_SL_Stage).filter_by(position_id=position.id, stage_number=1).one()
         assert stage.status == TPStageStatus.FILLED
+        assert stage.stage_type == TPStageType.SL
+        assert stage.stage_type == TPStageType.TP
         order = db.query(Order).filter_by(position_id=position.id).one()
         assert order.status.value == "filled"
         assert order.quantity == pytest.approx(0.004)
