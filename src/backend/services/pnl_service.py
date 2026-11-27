@@ -334,8 +334,9 @@ class PnLAnalytics:
 class PnLService:
     """Paper-safe PnL service with an idempotent order-to-ledger reconciliation."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, session_factory: Any = None):
         self.config = config
+        self.session_factory = session_factory
         self.calculator = PnLCalculator(config)
         self.analytics = PnLAnalytics(config)
         self.logger = logging.getLogger(__name__)
