@@ -3,7 +3,6 @@ Pytest configuration for QUANTUM TRADER V1 tests
 """
 
 import pytest
-import asyncio
 import sys
 from pathlib import Path
 
@@ -18,7 +17,6 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
-
 
 @pytest.fixture(scope="session")
 def config():

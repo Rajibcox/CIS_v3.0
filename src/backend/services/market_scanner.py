@@ -80,7 +80,7 @@ class ScanConfig:
 
     # Output limits
     max_results: int = 100
-    min_signal_score: float = 0.7
+    min_signal_score: float = 70.0
 
 
 @dataclass
@@ -412,9 +412,10 @@ class MarketScanner:
         trend_4h = "up" if current_price > ema_50_4h else "down"
 
         # ADX for trend strength
-        highs = [float(c.high) for c in candles_1h[-14:]]
-        lows = [float(c.low) for c in candles_1h[-14:]]
-        closes = [float(c.close) for c in candles_1h[-14:]]
+        # A 14-period ADX needs 15 candles to produce 14 movement observations.
+        highs = [float(c.high) for c in candles_1h[-15:]]
+        lows = [float(c.low) for c in candles_1h[-15:]]
+        closes = [float(c.close) for c in candles_1h[-15:]]
         adx = self._calculate_adx(highs, lows, closes, 14)
 
         # Regime classification
