@@ -14,7 +14,7 @@ import numpy as np
 from collections import deque
 
 from src.backend.models.database import MarketRegime
-from src.backend.services.market_data_service import MarketDataService
+from src.backend.services.market_data_service import MarketDataService, CandleData
 from src.backend.services.historical_data_service import HistoricalDataService
 from src.backend.utils.config import Config
 from src.backend.utils.logger import get_logger
@@ -512,13 +512,38 @@ class MarketRegimeService:
             ticker = await adapter.fetch_ticker(symbol)
             funding = await adapter.fetch_funding_rate(symbol)
 
+            # Exchange adapters expose dictionaries; the detector consumes
+            # CandleData objects and a Decimal 24h volume.
+            candles_15m = [
+                CandleData(**candle) if isinstance(candle, dict) else candle
+                for candle in candles_15m
+            ]
+            candles_1h = [
+                CandleData(**candle) if isinstance(candle, dict) else candle
+                for candle in candles_1h
+            ]
+            candles_4h = [
+                CandleData(**candle) if isinstance(candle, dict) else candle
+                for candle in candles_4h
+            ]
+            candles_1d = [
+                CandleData(**candle) if isinstance(candle, dict) else candle
+                for candle in candles_1d
+            ]
+
+            volume_24h = (
+                ticker.get("volume_24h", Decimal("0"))
+                if isinstance(ticker, dict)
+                else getattr(ticker, "volume_24h", Decimal("0"))
+            )
+
             state = self.detector.detect_regime(
                 symbol=symbol,
                 candles_15m=candles_15m,
                 candles_1h=candles_1h,
                 candles_4h=candles_4h,
                 candles_1d=candles_1d,
-                volume_24h=ticker.volume_24h if ticker else Decimal('0'),
+                volume_24h=Decimal(str(volume_24h)),
                 funding_rate=funding.get('rate') if funding else None
             )
             return state
