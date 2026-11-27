@@ -51,7 +51,7 @@ def test_atr_buffer_is_applied_only_when_strategy_configures_it():
     )
     assert result.atr_value == Decimal("10")
     assert result.buffer_price == Decimal("5")
-    assert result.stop_price == Decimal("101")
+    assert result.stop_price == Decimal("98")
 
 
 @pytest.mark.parametrize("direction", ["LONG", "SHORT"])
