@@ -11,7 +11,15 @@ import pytest
 
 from src.backend.models.database import Exchange, Order, Position, Symbol
 from src.backend.services.execution_service import ExecutionService
-from src.backend.tests.test_execution_service import FakeMarketData
+
+
+class FakeMarketData:
+    def __init__(self):
+        self.calls = []
+
+    async def get_ticker(self, symbol, exchange):
+        self.calls.append((symbol, exchange))
+        return {"price": Decimal("50000")}
 
 
 
