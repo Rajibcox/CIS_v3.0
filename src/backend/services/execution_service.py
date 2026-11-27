@@ -172,8 +172,14 @@ class PaperExecutor:
         self.positions = {}
         self.order_counter = 0
 
-    async def place_order(self, params: OrderParams) -> OrderResult:
-        """Simulate an order without sending anything to an exchange."""
+    async def place_order(
+        self, params: OrderParams, cache_order: bool = True
+    ) -> OrderResult:
+        """Simulate an order without sending anything to an exchange.
+
+        DB-backed callers disable the in-memory cache because its state cannot
+        be committed or rolled back with the caller-owned SQLAlchemy session.
+        """
         timestamp = datetime.utcnow()
         ticker = await self.market_data.get_ticker(params.symbol, params.exchange)
         if not ticker:
@@ -269,21 +275,22 @@ class PaperExecutor:
         if not should_fill:
             # Keep untriggered limit/conditional orders pending; never report them
             # as filled merely because the paper executor received the request.
-            self.orders[order_id] = {
-                "id": order_id,
-                "symbol": params.symbol,
-                "exchange": params.exchange,
-                "side": params.side.value,
-                "type": params.order_type.value,
-                "quantity": params.quantity,
-                "filled_quantity": Decimal("0"),
-                "price": params.price,
-                "stop_price": params.stop_price,
-                "status": OrderStatus.PENDING if error is None else OrderStatus.REJECTED,
-                "fees": Decimal("0"),
-                "timestamp": timestamp,
-                "error": error,
-            }
+            if cache_order:
+                self.orders[order_id] = {
+                        "id": order_id,
+                    "symbol": params.symbol,
+                    "exchange": params.exchange,
+                    "side": params.side.value,
+                    "type": params.order_type.value,
+                    "quantity": params.quantity,
+                    "filled_quantity": Decimal("0"),
+                    "price": params.price,
+                    "stop_price": params.stop_price,
+                    "status": OrderStatus.PENDING if error is None else OrderStatus.REJECTED,
+                    "fees": Decimal("0"),
+                    "timestamp": timestamp,
+                    "error": error,
+                }
             return OrderResult(
                 order_id=order_id,
                 exchange_order_id=order_id,
@@ -309,20 +316,21 @@ class PaperExecutor:
             * Decimal(str(self.config.settings.paper_fees))
         )
 
-        self.orders[order_id] = {
-            "id": order_id,
-            "symbol": params.symbol,
-            "exchange": params.exchange,
-            "side": params.side.value,
-            "type": params.order_type.value,
-            "quantity": params.quantity,
-            "filled_quantity": params.quantity,
-            "price": fill_price,
-            "fees": fees,
-            "status": OrderStatus.FILLED,
-            "timestamp": timestamp,
-            "error": None,
-        }
+        if cache_order:
+            self.orders[order_id] = {
+                    "id": order_id,
+                "symbol": params.symbol,
+                "exchange": params.exchange,
+                "side": params.side.value,
+                "type": params.order_type.value,
+                "quantity": params.quantity,
+                "filled_quantity": params.quantity,
+                "price": fill_price,
+                "fees": fees,
+                "status": OrderStatus.FILLED,
+                "timestamp": timestamp,
+                "error": None,
+            }
 
         return OrderResult(
             order_id=order_id,
@@ -386,6 +394,7 @@ class ExecutionService:
         mode: str = "paper",
         db: Optional[Session] = None,
         position_id: Optional[int] = None,
+        cache_order: Optional[bool] = None,
     ) -> OrderResult:
         """Place an order through the selected, explicitly permitted executor."""
         # This build is paper-only. Do not let configuration flags or a
@@ -404,7 +413,12 @@ class ExecutionService:
                 error="Live execution is disabled; only paper execution is permitted",
             )
 
-        result = await self.paper_executor.place_order(params)
+        # A DB-backed order must not also live in the executor's in-memory
+        # cache: that cache cannot participate in the caller's commit/rollback.
+        # Standalone simulations retain the existing in-memory behavior.
+        if cache_order is None:
+            cache_order = db is None
+        result = await self.paper_executor.place_order(params, cache_order=cache_order)
         if db is not None and result.status in (OrderStatus.FILLED, OrderStatus.PENDING):
             try:
                 self._persist_paper_order(db, params, result, position_id=position_id)
@@ -508,7 +522,7 @@ class ExecutionService:
                     f"({signal.exchange}:{signal.symbol})"
                 )
 
-        result = await self.place_order(params, mode)
+        result = await self.place_order(params, mode, cache_order=(db is None))
         if db is not None and result.status == OrderStatus.FILLED:
             position = Position(
                 signal_id=getattr(signal, "id", None),
