@@ -24,8 +24,8 @@ def upgrade():
         sa.Column('base_url', sa.String(255), nullable=False),
         sa.Column('api_version', sa.String(20), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('name')
     )
@@ -41,7 +41,7 @@ def upgrade():
         sa.Column('permissions', sa.String(50), nullable=True),
         sa.Column('ip_whitelist', sa.JSON(), nullable=True),
         sa.Column('is_enabled', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.Column('last_used', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['exchange_id'], ['exchanges.id']),
         sa.PrimaryKeyConstraint('id')
@@ -63,8 +63,8 @@ def upgrade():
         sa.Column('maintenance_margin_rate', sa.Float(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True),
         sa.Column('is_eligible', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['exchange_id'], ['exchanges.id']),
         sa.PrimaryKeyConstraint('id')
     )
@@ -84,11 +84,11 @@ def upgrade():
         sa.Column('quote_volume', sa.Float(), nullable=True),
         sa.Column('trades', sa.Integer(), nullable=True),
         sa.Column('is_closed', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id']),
         sa.PrimaryKeyConstraint('id')
     )
-# Create strategies table
+    # Create strategies table
     op.create_table(
         'strategies',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -103,8 +103,8 @@ def upgrade():
         sa.Column('symbols', sa.JSON(), nullable=False),
         sa.Column('min_signal_score', sa.Float(), nullable=False),
         sa.Column('created_by', sa.String(100), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
 
@@ -117,7 +117,7 @@ def upgrade():
         sa.Column('rule_config', sa.JSON(), nullable=False),
         sa.Column('weight', sa.Float(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['strategy_id'], ['strategies.id']),
         sa.PrimaryKeyConstraint('id')
     )
@@ -138,8 +138,8 @@ def upgrade():
         sa.Column('tp3', sa.Float(), nullable=True),
         sa.Column('runner_quantity', sa.Float(), nullable=True),
         sa.Column('status', sa.Enum('candidate', 'qualified', 'active', 'triggered', 'expired', 'invalidated', 'rejected', 'executed', name='signalstatus', native_enum=True, create_constraint=False, length=11), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('triggered_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('executed_at', sa.DateTime(timezone=True), nullable=True),
@@ -162,7 +162,7 @@ def upgrade():
         sa.Column('event_type', sa.String(30), nullable=False),
         sa.Column('price', sa.Float(), nullable=True),
         sa.Column('details', sa.JSON(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(['signal_id'], ['signals.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id')
     )
@@ -186,8 +186,8 @@ def upgrade():
         sa.Column('realized_pnl', sa.Float(), nullable=True),
         sa.Column('open_time', sa.DateTime(timezone=True), nullable=True),
         sa.Column('close_time', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['signal_id'], ['signals.id']),
         sa.ForeignKeyConstraint(['exchange_id'], ['exchanges.id']),
         sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id']),
@@ -211,8 +211,8 @@ def upgrade():
         sa.Column('filled_quantity', sa.Float(), nullable=True),
         sa.Column('average_fill_price', sa.Float(), nullable=True),
         sa.Column('fees', sa.Float(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.Column('filled_at', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['position_id'], ['positions.id']),
         sa.ForeignKeyConstraint(['exchange_id'], ['exchanges.id']),
@@ -233,8 +233,8 @@ def upgrade():
         sa.Column('triggered_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('filled_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('exchange_order_id', sa.String(100), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['position_id'], ['positions.id']),
         sa.PrimaryKeyConstraint('id')
     )
@@ -249,7 +249,7 @@ def upgrade():
         sa.Column('amount', sa.Float(), nullable=False),
         sa.Column('running_balance', sa.Float(), nullable=False),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.ForeignKeyConstraint(['position_id'], ['positions.id']),
         sa.PrimaryKeyConstraint('id')
     )
@@ -262,8 +262,8 @@ def upgrade():
         sa.Column('config_value', sa.JSON(), nullable=False),
         sa.Column('version', sa.Integer(), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('config_key')
     )
@@ -282,10 +282,10 @@ def upgrade():
         sa.Column('user_agent', sa.Text(), nullable=True),
         sa.Column('success', sa.Boolean(), nullable=True),
         sa.Column('error_message', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
-# Create system_events table
+    # Create system_events table
     op.create_table(
         'system_events',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -295,10 +295,10 @@ def upgrade():
         sa.Column('details', sa.JSON(), nullable=True),
         sa.Column('is_resolved', sa.Boolean(), nullable=True),
         sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
-# Create telegram_users table
+    # Create telegram_users table
     op.create_table(
         'telegram_users',
         sa.Column('id', sa.Integer(), nullable=False),
@@ -306,7 +306,7 @@ def upgrade():
         sa.Column('username', sa.String(100), nullable=True),
         sa.Column('is_admin', sa.Boolean(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('user_id')
     )
