@@ -145,7 +145,13 @@ class MarketScanner:
         self._last_scan_results: List[ScanResult] = []
         self._last_scan_error: Optional[str] = None
         self._last_scan_snapshot_count: int = 0
+        self._last_scan_snapshots: Dict[str, MarketSnapshot] = {}
         self._scan_callbacks: List[Callable] = []
+
+    @property
+    def latest_snapshots(self) -> Dict[str, MarketSnapshot]:
+        """Return a shallow copy of the snapshots from the last successful scan."""
+        return dict(self._last_scan_snapshots)
 
     def configure(self, scan_config: ScanConfig):
         """Update scan configuration"""
@@ -208,6 +214,9 @@ class MarketScanner:
             results = list(self._run_filters(snapshots))
             self._last_scan_error = None
             self._last_scan_snapshot_count = len(snapshots)
+            # Keep unfiltered market data available to strategy evaluation.
+            # ScanResult rows are heuristic filter output, not strategy signals.
+            self._last_scan_snapshots = dict(snapshots)
 
             # Sort by signal score
             results.sort(key=lambda x: x.signal_score, reverse=True)

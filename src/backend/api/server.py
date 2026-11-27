@@ -52,7 +52,7 @@ def create_app(config: Config = None) -> FastAPI:
         print(f"Configuration loaded from: {config.settings.project_root}")
 
         try:
-            app.state.services = await initialize_services(config)
+            app.state.services = await initialize_services(config, SessionFactory)
             yield
         finally:
             # initialize_services may fail after creating some services.

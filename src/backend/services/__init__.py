@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 class ServiceContainer:
     """Owns application services and their dependency-aware lifecycle."""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, session_factory: Any = None):
         self.config = config
+        self.session_factory = session_factory
         self.market_data: Optional[MarketDataService] = None
         self.historical_data: Optional[HistoricalDataService] = None
         self.market_regime: Optional[MarketRegimeService] = None
@@ -87,6 +88,8 @@ class ServiceContainer:
             self.market_data,
             self.market_regime,
             self.strategy_service,
+            market_scanner=self.market_scanner,
+            session_factory=self.session_factory,
         )
         await self.signal_service.initialize()
 
@@ -140,23 +143,38 @@ class ServiceContainer:
 _service_container: Optional[ServiceContainer] = None
 
 
-def get_service_container(config: Optional[Config] = None) -> ServiceContainer:
+def get_service_container(
+    config: Optional[Config] = None,
+    session_factory: Any = None,
+) -> ServiceContainer:
     """Get or create the global service container."""
     global _service_container
     if _service_container is None:
-        _service_container = ServiceContainer(config or Config())
+        _service_container = ServiceContainer(config or Config(), session_factory)
     elif config is not None and _service_container.config is not config:
         if _service_container._initialized:
             raise RuntimeError(
                 "Cannot replace the service container while it is initialized."
             )
-        _service_container = ServiceContainer(config)
+        _service_container = ServiceContainer(config, session_factory)
+    elif session_factory is not None:
+        if (
+            _service_container._initialized
+            and _service_container.session_factory is not session_factory
+        ):
+            raise RuntimeError(
+                "Cannot replace the session factory while services are initialized."
+            )
+        _service_container.session_factory = session_factory
     return _service_container
 
 
-async def initialize_services(config: Optional[Config] = None) -> ServiceContainer:
+async def initialize_services(
+    config: Optional[Config] = None,
+    session_factory: Any = None,
+) -> ServiceContainer:
     """Create and initialize all application services."""
-    container = get_service_container(config)
+    container = get_service_container(config, session_factory)
     await container.initialize_all()
     return container
 
