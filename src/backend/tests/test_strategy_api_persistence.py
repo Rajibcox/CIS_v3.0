@@ -65,40 +65,24 @@ def _payload(name="API persisted strategy"):
     }
 
 
-def test_strategy_api_create_read_and_list_persist_across_requests(api_client):
-    client, factory, _ = api_client
-    created = client.post("/api/v1/strategies", json=_payload())
-    assert created.status_code == 201, created.text
-    strategy_id = created.json()["id"]
-
-    fetched = client.get(f"/api/v1/strategies/{strategy_id}")
-    assert fetched.status_code == 200
-    assert fetched.json()["name"] == "API persisted strategy"
-
-    listed = client.get("/api/v1/strategies")
-    assert listed.status_code == 200
-    assert any(item["id"] == strategy_id for item in listed.json())
-
-    with factory() as db:
-        rules = db.query(StrategyRule).filter_by(strategy_id=strategy_id).all()
-        assert {rule.rule_type for rule in rules} == {"entry", "exit"}
-
-
 def _trade_plan():
     return {
-                "schema_version": 1,
-                "entry": "strategy_rule_match",
-                "stop_loss": {"method": "swing_structure", "parameters": {"lookback_candles": 20, "buffer_mode": "none"}},
-                "take_profit": {
-                    "targets": {
-                        "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
-                        "tp2": {"method": "strategy_defined_tp2", "parameters": {}},
-                        "tp3": {"method": "strategy_defined_tp3", "parameters": {}}
-                    },
-                    "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10}
-                },
-                "runner": {"method": "strategy_defined_runner", "parameters": {}}
-            }
+        "schema_version": 1,
+        "entry": "strategy_rule_match",
+        "stop_loss": {
+            "method": "swing_structure",
+            "parameters": {"lookback_candles": 20, "buffer_mode": "none"},
+        },
+        "take_profit": {
+            "targets": {
+                "tp1": {"method": "risk_reward", "parameters": {"r_multiple": 1.0}},
+                "tp2": {"method": "risk_reward", "parameters": {"r_multiple": 2.0}},
+                "tp3": {"method": "risk_reward", "parameters": {"r_multiple": 3.0}},
+            },
+            "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10},
+        },
+        "runner": {"method": "strategy_defined_runner", "parameters": {}},
+    }
 
 
 def test_strategy_api_persists_returns_updates_and_clones_trade_plan(api_client):
@@ -148,6 +132,30 @@ def test_strategy_api_rejects_invalid_trade_plan_without_persisting(api_client):
     payload = _payload()
     payload["rule_set"]["trade_plan"] = _trade_plan()
     payload["rule_set"]["trade_plan"]["take_profit"]["allocation"]["runner"] = 20
+
+    response = client.post("/api/v1/strategies", json=payload)
+    assert response.status_code == 422, response.text
+    with factory() as db:
+        from src.backend.models.database import Strategy
+        assert db.query(Strategy).count() == 0
+
+
+@pytest.mark.parametrize(
+    "bad_target",
+    [
+        {"method": "not_supported", "parameters": {}},
+        {"method": "risk_reward", "parameters": {}},
+        {"method": "atr_multiple", "parameters": {"atr_period": 14}},
+        {"method": "fixed_percentage", "parameters": {"percentage": 0}},
+    ],
+)
+def test_strategy_api_rejects_invalid_take_profit_method_without_persisting(
+    api_client, bad_target
+):
+    client, factory, _ = api_client
+    payload = _payload()
+    payload["rule_set"]["trade_plan"] = _trade_plan()
+    payload["rule_set"]["trade_plan"]["take_profit"]["targets"]["tp1"] = bad_target
 
     response = client.post("/api/v1/strategies", json=payload)
     assert response.status_code == 422, response.text

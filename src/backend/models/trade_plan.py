@@ -4,7 +4,7 @@ These models define and validate persisted configuration only. They do not
 implement price calculations, qualify signals, or authorize order execution.
 """
 from math import isclose, isfinite
-from typing import Any, Dict, Literal, Optional
+from typing import Annotated, Any, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -43,7 +43,6 @@ class TradePlanAllocation(TradePlanModel):
         return self
 
 
-
 class SwingStructureStopLossParameters(TradePlanModel):
     """Strategy-owned parameters for confirmed swing-structure stops."""
 
@@ -71,8 +70,70 @@ class TradePlanStopLoss(TradePlanModel):
     parameters: SwingStructureStopLossParameters
 
 
+class RiskRewardTakeProfitParameters(TradePlanModel):
+    """Target distance expressed as a multiple of initial stop risk."""
+
+    r_multiple: float = Field(..., gt=0.0, le=50.0)
+
+    @model_validator(mode="after")
+    def validate_finite_multiple(self):
+        if not isfinite(self.r_multiple):
+            raise ValueError("r_multiple must be finite")
+        return self
+
+
+class ATRMultipleTakeProfitParameters(TradePlanModel):
+    """Target distance expressed as a strategy-configured ATR multiple."""
+
+    atr_period: int = Field(..., ge=2, le=200)
+    atr_multiplier: float = Field(..., gt=0.0, le=50.0)
+
+    @model_validator(mode="after")
+    def validate_finite_multiplier(self):
+        if not isfinite(self.atr_multiplier):
+            raise ValueError("atr_multiplier must be finite")
+        return self
+
+
+class FixedPercentageTakeProfitParameters(TradePlanModel):
+    """Target distance expressed as an explicit percentage from entry."""
+
+    percentage: float = Field(..., gt=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def validate_finite_percentage(self):
+        if not isfinite(self.percentage):
+            raise ValueError("percentage must be finite")
+        return self
+
+
+class RiskRewardTakeProfitTarget(TradePlanModel):
+    method: Literal["risk_reward"]
+    parameters: RiskRewardTakeProfitParameters
+
+
+class ATRMultipleTakeProfitTarget(TradePlanModel):
+    method: Literal["atr_multiple"]
+    parameters: ATRMultipleTakeProfitParameters
+
+
+class FixedPercentageTakeProfitTarget(TradePlanModel):
+    method: Literal["fixed_percentage"]
+    parameters: FixedPercentageTakeProfitParameters
+
+
+TakeProfitTarget = Annotated[
+    Union[
+        RiskRewardTakeProfitTarget,
+        ATRMultipleTakeProfitTarget,
+        FixedPercentageTakeProfitTarget,
+    ],
+    Field(discriminator="method"),
+]
+
+
 class TradePlanTakeProfit(TradePlanModel):
-    targets: Dict[str, TradePlanMethod]
+    targets: Dict[str, TakeProfitTarget]
     allocation: TradePlanAllocation = Field(default_factory=TradePlanAllocation)
 
     @model_validator(mode="after")

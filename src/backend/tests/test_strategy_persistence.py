@@ -72,19 +72,22 @@ def test_create_strategy_persists_api_rule_keys_and_loads_engine(db_session):
 
 def _trade_plan():
     return {
-                "schema_version": 1,
-                "entry": "strategy_rule_match",
-                "stop_loss": {"method": "swing_structure", "parameters": {"lookback_candles": 20, "buffer_mode": "none"}},
-                "take_profit": {
-                    "targets": {
-                        "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
-                        "tp2": {"method": "strategy_defined_tp2", "parameters": {}},
-                        "tp3": {"method": "strategy_defined_tp3", "parameters": {}}
-                    },
-                    "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10}
-                },
-                "runner": {"method": "strategy_defined_runner", "parameters": {}}
-            }
+        "schema_version": 1,
+        "entry": "strategy_rule_match",
+        "stop_loss": {
+            "method": "swing_structure",
+            "parameters": {"lookback_candles": 20, "buffer_mode": "none"},
+        },
+        "take_profit": {
+            "targets": {
+                "tp1": {"method": "risk_reward", "parameters": {"r_multiple": 1.0}},
+                "tp2": {"method": "risk_reward", "parameters": {"r_multiple": 2.0}},
+                "tp3": {"method": "risk_reward", "parameters": {"r_multiple": 3.0}},
+            },
+            "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10},
+        },
+        "runner": {"method": "strategy_defined_runner", "parameters": {}},
+    }
 
 
 def test_trade_plan_is_persisted_and_not_evaluated_as_an_entry_rule(db_session):
@@ -114,6 +117,9 @@ def test_trade_plan_is_persisted_and_not_evaluated_as_an_entry_rule(db_session):
     assert stored.rule_config["take_profit"]["allocation"] == {
         "tp1": 40.0, "tp2": 30.0, "tp3": 20.0, "runner": 10.0
     }
+    assert stored.rule_config["take_profit"]["targets"]["tp2"] == {
+        "method": "risk_reward", "parameters": {"r_multiple": 2.0}
+    }
     # Loading succeeds, but only the entry rule participates in evaluation.
     assert service.engine.evaluate_entry(
         strategy_id, {"rsi": 25.0}, "1h", "LONG"
@@ -139,6 +145,57 @@ def test_trade_plan_rejects_invalid_version_allocation_and_missing_target(db_ses
                 "entry_rules": _group(conditions=[_rsi("<", 30)]),
                 "trade_plan": plan,
             })
+
+
+@pytest.mark.parametrize(
+    "target, expected_method",
+    [
+        ({"method": "risk_reward", "parameters": {"r_multiple": 1.5}}, "risk_reward"),
+        (
+            {"method": "atr_multiple", "parameters": {"atr_period": 14, "atr_multiplier": 2.0}},
+            "atr_multiple",
+        ),
+        (
+            {"method": "fixed_percentage", "parameters": {"percentage": 1.25}},
+            "fixed_percentage",
+        ),
+    ],
+)
+def test_take_profit_target_methods_accept_valid_method_specific_parameters(
+    target, expected_method
+):
+    from src.backend.models.trade_plan import TradePlanConfig
+
+    plan = _trade_plan()
+    plan["take_profit"]["targets"] = {
+        "tp1": target,
+        "tp2": {"method": "risk_reward", "parameters": {"r_multiple": 2.0}},
+        "tp3": {"method": "risk_reward", "parameters": {"r_multiple": 3.0}},
+    }
+    validated = TradePlanConfig.model_validate(plan)
+    assert validated.take_profit.targets["tp1"].method == expected_method
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        {"method": "unknown_method", "parameters": {}},
+        {"method": "risk_reward", "parameters": {}},
+        {"method": "risk_reward", "parameters": {"r_multiple": 0}},
+        {"method": "risk_reward", "parameters": {"r_multiple": 1.0, "extra": 1}},
+        {"method": "atr_multiple", "parameters": {"atr_period": 1, "atr_multiplier": 2.0}},
+        {"method": "atr_multiple", "parameters": {"atr_period": 14}},
+        {"method": "fixed_percentage", "parameters": {"percentage": 0}},
+        {"method": "fixed_percentage", "parameters": {"percentage": 1.0, "extra": True}},
+    ],
+)
+def test_take_profit_target_rejects_unsupported_or_invalid_method_parameters(target):
+    from src.backend.models.trade_plan import TradePlanConfig
+
+    plan = _trade_plan()
+    plan["take_profit"]["targets"]["tp1"] = target
+    with pytest.raises(Exception):
+        TradePlanConfig.model_validate(plan)
 
 
 def test_trade_plan_rejects_unknown_fields_and_malformed_method_ids():
@@ -208,7 +265,6 @@ def test_non_one_hour_rule_does_not_reuse_hourly_scanner_value(db_session):
     assert engine._group_matches(group, {"rsi": 20.0}, "15m") is False
 
 
-
 def test_initialize_loads_active_strategies_from_database_and_closes_session(db_session):
     service = StrategyService(config=None, session_factory=lambda: db_session)
     strategy = Strategy(
@@ -231,12 +287,9 @@ def test_initialize_loads_active_strategies_from_database_and_closes_session(db_
 
     def tracked_close():
         closed.append(True)
-        # Keep the fixture-owned session usable for assertions after initialization.
-        # SQLAlchemy close is safe here; the fixture closes it again at teardown.
         original_close()
 
     db_session.close = tracked_close
-
     asyncio.run(service.initialize())
 
     assert service._running is True
