@@ -143,6 +143,8 @@ class MarketScanner:
         self._running = False
         self._scan_task: Optional[asyncio.Task] = None
         self._last_scan_results: List[ScanResult] = []
+        self._last_scan_error: Optional[str] = None
+        self._last_scan_snapshot_count: int = 0
         self._scan_callbacks: List[Callable] = []
 
     def configure(self, scan_config: ScanConfig):
@@ -204,6 +206,8 @@ class MarketScanner:
             # Run filters
             # _run_filters is a synchronous generator; consume it rather than awaiting it.
             results = list(self._run_filters(snapshots))
+            self._last_scan_error = None
+            self._last_scan_snapshot_count = len(snapshots)
 
             # Sort by signal score
             results.sort(key=lambda x: x.signal_score, reverse=True)
@@ -226,7 +230,9 @@ class MarketScanner:
             return results
 
         except Exception as e:
-            logger.error(f"Scan failed: {e}")
+            self._last_scan_error = str(e)
+            self._last_scan_snapshot_count = 0
+            logger.exception("Scan failed")
             return []
 
     async def _get_eligible_symbols(self) -> List[str]:
