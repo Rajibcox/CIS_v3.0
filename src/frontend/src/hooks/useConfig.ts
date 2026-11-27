@@ -134,7 +134,7 @@ export const {
 export function useRunBackup() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (description?: string) => api.runBackup(description),
+    mutationFn: () => api.runBackup(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'backup'] });
     },
