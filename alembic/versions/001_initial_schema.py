@@ -342,14 +342,32 @@ def upgrade():
         ON CONFLICT (name) DO NOTHING;
     """)
 
+    # Seed strategies without relying on a UNIQUE constraint on strategies.name.
+    # This form is supported by both SQLite and PostgreSQL.
     op.execute("""
-        INSERT INTO strategies (name, description, version, is_active) VALUES
-        ('Trend Following', 'Long-only trend following strategy', '1.0.0', true),
-        ('Mean Reversion', 'Short-term mean reversion strategy', '1.0.0', true),
-        ('Breakout', 'Breakout and retest strategy', '1.0.0', true),
-        ('Momentum Scalping', 'Short-term momentum strategy', '1.0.0', true),
-        ('Volume Expansion', 'Volume expansion based strategy', '1.0.0', true)
-        ON CONFLICT (name) DO NOTHING;
+        INSERT INTO strategies (name, description, version, is_active)
+        SELECT 'Trend Following', 'Long-only trend following strategy', '1.0.0', true
+        WHERE NOT EXISTS (SELECT 1 FROM strategies WHERE name = 'Trend Following');
+    """)
+    op.execute("""
+        INSERT INTO strategies (name, description, version, is_active)
+        SELECT 'Mean Reversion', 'Short-term mean reversion strategy', '1.0.0', true
+        WHERE NOT EXISTS (SELECT 1 FROM strategies WHERE name = 'Mean Reversion');
+    """)
+    op.execute("""
+        INSERT INTO strategies (name, description, version, is_active)
+        SELECT 'Breakout', 'Breakout and retest strategy', '1.0.0', true
+        WHERE NOT EXISTS (SELECT 1 FROM strategies WHERE name = 'Breakout');
+    """)
+    op.execute("""
+        INSERT INTO strategies (name, description, version, is_active)
+        SELECT 'Momentum Scalping', 'Short-term momentum strategy', '1.0.0', true
+        WHERE NOT EXISTS (SELECT 1 FROM strategies WHERE name = 'Momentum Scalping');
+    """)
+    op.execute("""
+        INSERT INTO strategies (name, description, version, is_active)
+        SELECT 'Volume Expansion', 'Volume expansion based strategy', '1.0.0', true
+        WHERE NOT EXISTS (SELECT 1 FROM strategies WHERE name = 'Volume Expansion');
     """)
 
     op.execute("""
