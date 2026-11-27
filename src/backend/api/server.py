@@ -59,6 +59,7 @@ def create_app(config: Config = None) -> FastAPI:
             # Always attempt cleanup so partially initialized services do not
             # leave background tasks, sockets, or other resources running.
             await shutdown_services()
+            engine.dispose()
             print("Shutting down...")
 
     app = FastAPI(
