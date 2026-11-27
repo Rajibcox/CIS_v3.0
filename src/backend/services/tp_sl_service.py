@@ -272,13 +272,28 @@ class TPSLManager:
             position_id=self.position.id,
         )
 
-    def _update_position_after_fill(self, quantity: Decimal, fill_price: Decimal):
+    def _update_position_after_fill(
+        self, quantity: Decimal, fill_price: Decimal, fees: Decimal = Decimal("0")
+    ):
+        """Book net realized PnL for a partial or full closing fill.
+
+        Long: (exit - entry) * quantity.
+        Short: (entry - exit) * quantity.
+        Paper execution reports the closing fee separately, so deduct it once
+        from the realized result.
+        """
         remaining = max(Decimal("0"), self.state["quantity"] - quantity)
         entry = self.state["entry_price"]
+        fees = self._decimal(fees, "closing fees")
+        if fees < 0:
+            raise ValueError("Closing fees cannot be negative")
         pnl = (fill_price - entry) * quantity
         if self.state["direction"] == "SHORT":
             pnl = -pnl
-        self.position.realized_pnl = float(Decimal(str(self.position.realized_pnl or 0)) + pnl)
+        net_pnl = pnl - fees
+        self.position.realized_pnl = float(
+            Decimal(str(self.position.realized_pnl or 0)) + net_pnl
+        )
         self.state["quantity"] = remaining
         self.position.quantity = float(remaining)
         if remaining == 0:
@@ -304,7 +319,7 @@ class TPSLManager:
         order.filled_at = now
         order.order_id = result.order_id
         order.exchange_order_id = result.exchange_order_id
-        self._update_position_after_fill(filled_qty, result.average_fill_price)
+        self._update_position_after_fill(filled_qty, result.average_fill_price, result.fees)
         self.state["current_stage"] = stage
         self._persist_stage(stage, order.target_price, order.quantity, TPStatus.FILLED,
                             now, now, result.exchange_order_id)
@@ -389,7 +404,7 @@ class TPSLManager:
             now = datetime.utcnow()
             self._persist_stage(0, self.state["stop_loss"], self.state["original_quantity"],
                                 TPStatus.FILLED, now, now, result.exchange_order_id)
-            self._update_position_after_fill(remaining, result.average_fill_price)
+            self._update_position_after_fill(remaining, result.average_fill_price, result.fees)
             self._running = False
         finally:
             self._sl_closing = False
