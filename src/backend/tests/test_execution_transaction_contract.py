@@ -10,7 +10,12 @@ from types import SimpleNamespace
 import pytest
 
 from src.backend.models.database import Exchange, Order, Position, Symbol
-from src.backend.services.execution_service import ExecutionService
+from src.backend.services.execution_service import (
+    ExecutionService,
+    OrderParams,
+    OrderSide,
+    OrderType,
+)
 
 
 class FakeMarketData:
@@ -138,5 +143,55 @@ async def test_entry_persistence_failure_propagates_for_caller_rollback(
     # must roll back the failed SQLAlchemy transaction.
     db_session.rollback()
     assert db_session.query(Position).count() == 0
+    assert db_session.query(Order).count() == 0
+    assert service.paper_executor.orders == {}
+
+
+@pytest.mark.asyncio
+async def test_pending_paper_order_is_persisted_in_caller_transaction(
+    execution_context, db_session, exchange_symbol
+):
+    service, _market_data = execution_context
+    params = OrderParams(
+        symbol="BTCUSDT",
+        exchange="binance",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("49000"),
+    )
+
+    result = await service.place_order(params, mode="paper", db=db_session)
+
+    assert result.status.value == "pending"
+    saved = db_session.query(Order).one()
+    assert saved.status.value == "pending"
+    assert saved.position_id is None
+    assert db_session.in_transaction() is True
+
+
+@pytest.mark.asyncio
+async def test_generic_order_persistence_failure_removes_ephemeral_order(
+    execution_context, db_session, exchange_symbol, monkeypatch
+):
+    service, _market_data = execution_context
+    original_flush = db_session.flush
+
+    def fail_flush(*args, **kwargs):
+        raise RuntimeError("simulated order persistence failure")
+
+    monkeypatch.setattr(db_session, "flush", fail_flush)
+    params = OrderParams(
+        symbol="BTCUSDT",
+        exchange="binance",
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("0.01"),
+    )
+
+    with pytest.raises(RuntimeError, match="simulated order persistence failure"):
+        await service.place_order(params, mode="paper", db=db_session)
+
+    db_session.rollback()
     assert db_session.query(Order).count() == 0
     assert service.paper_executor.orders == {}
