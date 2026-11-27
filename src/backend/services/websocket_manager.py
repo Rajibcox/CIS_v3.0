@@ -4,6 +4,7 @@ Handles real-time WebSocket connections for market data and trade updates
 """
 
 import json
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Set, Optional, Callable, Any
