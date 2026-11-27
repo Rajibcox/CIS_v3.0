@@ -35,7 +35,7 @@ export function Header({ onMenuClick, sidebarCollapsed, onThemeToggle, theme }: 
     dailyPnl: 0.00,
     dailyPnlPct: 0.00,
     openPositions: 0,
-    mode: 'paper' as const,
+    mode: 'paper' as 'paper' | 'live',
     status: 'healthy' as const,
   };
 
