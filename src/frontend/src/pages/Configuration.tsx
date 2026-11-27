@@ -55,7 +55,7 @@ export function ConfigurationPage() {
       // Initialize exchange forms
       const exchForms: Record<string, any> = {};
       Object.entries(config.exchanges).forEach(([key, value]) => {
-        exchForms[key] = { ...value, api_key: '', api_secret: '', passphrase: '' }; // Don't populate secrets
+        exchForms[key] = { ...value };
       });
       setExchangeForms(exchForms);
 
@@ -547,19 +547,9 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Connection Test */}
-              <div className="flex items-center gap-4 p-4 rounded-lg bg-muted/50">
-                <div className="flex-1">
-                  <p className="font-medium">Connection Test</p>
-                  <p className="text-sm text-muted-foreground">Test API connectivity and permissions</p>
-                </div>
-                <Button
-                  onClick={() => onTest.mutate(exch.name.toLowerCase())}
-                  disabled={onTest.isPending}
-                >
-                  <RotateCcw className={cn("h-4 w-4 mr-2", onTest.isPending && "animate-spin")} />
-                  Test Connection
-                </Button>
+              <div className="rounded-lg border border-muted p-4 text-sm text-muted-foreground">
+                Exchange API credentials and private connection tests are disabled in
+                paper-only mode. Market-data access does not require private API keys.
               </div>
 
               {/* Configuration Form */}
@@ -607,41 +597,6 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                     </Select>
                   </div>
                 </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor={`${exch.name}-api-key`}>API Key</Label>
-                  <Input
-                    id={`${exch.name}-api-key`}
-                    type="password"
-                    value={form.api_key}
-                    onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_key: e.target.value } }))}
-                    placeholder="Enter API key"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor={`${exch.name}-api-secret`}>API Secret</Label>
-                  <Input
-                    id={`${exch.name}-api-secret`}
-                    type="password"
-                    value={form.api_secret}
-                    onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], api_secret: e.target.value } }))}
-                    placeholder="Enter API secret"
-                  />
-                </div>
-
-                {exch.name.toLowerCase() === 'bitget' && (
-                  <div className="space-y-2">
-                    <Label htmlFor={`${exch.name}-passphrase`}>Passphrase</Label>
-                    <Input
-                      id={`${exch.name}-passphrase`}
-                      type="password"
-                      value={form.passphrase}
-                      onChange={(e) => onFormChange((prev: Record<string, any>) => ({ ...prev, [exch.name.toLowerCase()]: { ...prev[exch.name.toLowerCase()], passphrase: e.target.value } }))}
-                      placeholder="Enter passphrase"
-                    />
-                  </div>
-                )}
 
                 <div className="grid gap-4 md:grid-cols-3">
                   <div className="space-y-2">
