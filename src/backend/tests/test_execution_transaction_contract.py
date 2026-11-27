@@ -180,7 +180,7 @@ async def test_pending_paper_order_is_persisted_in_caller_transaction(
 
 
 @pytest.mark.asyncio
-async def test_generic_order_persistence_failure_removes_ephemeral_order(
+async def test_generic_order_persistence_failure_leaves_no_cached_order(
     execution_context, db_session, exchange_symbol, monkeypatch
 ):
     service, _market_data = execution_context
