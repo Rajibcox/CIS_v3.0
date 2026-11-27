@@ -7,7 +7,6 @@ Create Date: 2026-11-26
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '001'
@@ -40,7 +39,7 @@ def upgrade():
         sa.Column('api_secret', sa.String(255), nullable=False),
         sa.Column('passphrase', sa.String(255), nullable=True),
         sa.Column('permissions', sa.String(50), nullable=False, server_default='read'),
-        sa.Column('ip_whitelist', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('ip_whitelist', sa.JSON(), nullable=True),
         sa.Column('is_enabled', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('last_used', sa.DateTime(timezone=True), nullable=True),
@@ -74,7 +73,7 @@ def upgrade():
     # Create market_candles table
     op.create_table(
         'market_candles',
-        sa.Column('id', sa.BigInteger(), nullable=False),
+        sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('symbol_id', sa.Integer(), nullable=False),
         sa.Column('timeframe', sa.String(10), nullable=False),
         sa.Column('open_time', sa.DateTime(timezone=True), nullable=False),
@@ -102,6 +101,12 @@ def upgrade():
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('version', sa.String(20), nullable=False),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
+        sa.Column('direction', sa.String(10), nullable=False, server_default='both'),
+        sa.Column('weight', sa.Float(), nullable=False, server_default='1.0'),
+        sa.Column('risk_multiplier', sa.Float(), nullable=False, server_default='1.0'),
+        sa.Column('timeframes', sa.JSON(), nullable=False, server_default='[]'),
+        sa.Column('symbols', sa.JSON(), nullable=False, server_default='[]'),
+        sa.Column('min_signal_score', sa.Float(), nullable=False, server_default='0.0'),
         sa.Column('created_by', sa.String(100), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
@@ -114,7 +119,7 @@ def upgrade():
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('strategy_id', sa.Integer(), nullable=False),
         sa.Column('rule_type', sa.String(50), nullable=False),
-        sa.Column('rule_config', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column('rule_config', sa.JSON(), nullable=False),
         sa.Column('weight', sa.Float(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -141,11 +146,33 @@ def upgrade():
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), onupdate=sa.func.now(), nullable=False),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('triggered_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('executed_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('rejection_reason', sa.Text(), nullable=True),
+        sa.Column('invalidation_reason', sa.Text(), nullable=True),
+        sa.Column('supporting_evidence', sa.JSON(), nullable=True),
+        sa.Column('risk_data', sa.JSON(), nullable=True),
         sa.ForeignKeyConstraint(['symbol_id'], ['symbols.id']),
         sa.ForeignKeyConstraint(['strategy_id'], ['strategies.id']),
         sa.PrimaryKeyConstraint('id'),
         sa.CheckConstraint("direction IN ('LONG', 'SHORT')", name='ck_signal_direction')
     )
+
+    # Persist every signal lifecycle transition independently of in-memory handlers.
+    op.create_table(
+        'signal_lifecycle_events',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('signal_id', sa.Integer(), nullable=False),
+        sa.Column('from_status', sa.String(20), nullable=True),
+        sa.Column('to_status', sa.String(20), nullable=False),
+        sa.Column('event_type', sa.String(30), nullable=False),
+        sa.Column('price', sa.Float(), nullable=True),
+        sa.Column('details', sa.JSON(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.ForeignKeyConstraint(['signal_id'], ['signals.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_signal_lifecycle_events_signal_id', 'signal_lifecycle_events', ['signal_id'])
 
     # Create positions table
     op.create_table(
@@ -246,7 +273,7 @@ def upgrade():
         'configurations',
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('config_key', sa.String(100), nullable=False),
-        sa.Column('config_value', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column('config_value', sa.JSON(), nullable=False),
         sa.Column('version', sa.Integer(), nullable=False, server_default='1'),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -258,13 +285,13 @@ def upgrade():
     # Create audit_logs table
     op.create_table(
         'audit_logs',
-        sa.Column('id', sa.BigInteger(), nullable=False),
+        sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('user_id', sa.String(100), nullable=True),
         sa.Column('action', sa.String(100), nullable=False),
         sa.Column('resource_type', sa.String(50), nullable=True),
         sa.Column('resource_id', sa.String(100), nullable=True),
-        sa.Column('old_values', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column('new_values', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('old_values', sa.JSON(), nullable=True),
+        sa.Column('new_values', sa.JSON(), nullable=True),
         sa.Column('ip_address', sa.String(50), nullable=True),
         sa.Column('user_agent', sa.Text(), nullable=True),
         sa.Column('success', sa.Boolean(), nullable=False, server_default='true'),
@@ -283,7 +310,7 @@ def upgrade():
         sa.Column('event_type', sa.String(50), nullable=False),
         sa.Column('severity', sa.String(20), nullable=False),
         sa.Column('message', sa.Text(), nullable=False),
-        sa.Column('details', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('details', sa.JSON(), nullable=True),
         sa.Column('is_resolved', sa.Boolean(), nullable=False, server_default='false'),
         sa.Column('resolved_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -298,7 +325,7 @@ def upgrade():
     op.create_table(
         'telegram_users',
         sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('user_id', sa.BigInteger(), nullable=False),
+        sa.Column('user_id', sa.Integer(), nullable=False),
         sa.Column('username', sa.String(100), nullable=True),
         sa.Column('is_admin', sa.Boolean(), nullable=False, server_default='false'),
         sa.Column('is_active', sa.Boolean(), nullable=False, server_default='true'),
@@ -348,6 +375,7 @@ def downgrade():
     op.drop_table('tp_sl_stages')
     op.drop_table('orders')
     op.drop_table('positions')
+    op.drop_table('signal_lifecycle_events')
     op.drop_table('signals')
     op.drop_table('strategy_rules')
     op.drop_table('strategies')

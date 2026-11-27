@@ -62,8 +62,14 @@ class OrderType(str, enum.Enum):
     STOP_LIMIT = "stop_limit"
 
 
+class TPStageType(str, enum.Enum):
+    """Take-profit or stop-loss stage classification"""
+    TP = "TP"
+    SL = "SL"
+
+
 class TPStageStatus(str, enum.Enum):
-    """TP/SL stage status"""
+    """TP/SL stage execution status"""
     PENDING = "pending"
     TRIGGERED = "triggered"
     FILLED = "filled"
@@ -197,7 +203,13 @@ class Strategy(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     version = Column(String(20), nullable=False)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    direction = Column(String(10), default="both", nullable=False)
+    weight = Column(Float, default=1.0, nullable=False)
+    risk_multiplier = Column(Float, default=1.0, nullable=False)
+    timeframes = Column(JSON, default=list, nullable=False)
+    symbols = Column(JSON, default=list, nullable=False)
+    min_signal_score = Column(Float, default=0.0, nullable=False)
     created_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -249,13 +261,37 @@ class Signal(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    triggered_at = Column(DateTime(timezone=True), nullable=True)
+    executed_at = Column(DateTime(timezone=True), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    invalidation_reason = Column(Text, nullable=True)
+    supporting_evidence = Column(JSON, nullable=True)
+    risk_data = Column(JSON, nullable=True)
 
     symbol = relationship("Symbol", back_populates="signals")
     strategy = relationship("Strategy", back_populates="signals")
     positions = relationship("Position", back_populates="signal")
+    lifecycle_events = relationship("SignalLifecycleEvent", back_populates="signal", cascade="all, delete-orphan", order_by="SignalLifecycleEvent.created_at")
 
     def __repr__(self):
         return f"<Signal(id={self.id}, symbol_id={self.symbol_id}, direction={self.direction!r})>"
+
+
+class SignalLifecycleEvent(Base):
+    """Durable audit record for each signal state transition."""
+
+    __tablename__ = "signal_lifecycle_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    signal_id = Column(Integer, ForeignKey("signals.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_status = Column(String(20), nullable=True)
+    to_status = Column(String(20), nullable=False)
+    event_type = Column(String(30), nullable=False)
+    price = Column(Float, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    signal = relationship("Signal", back_populates="lifecycle_events")
 
 
 class Position(Base):
@@ -330,7 +366,7 @@ class TP_SL_Stage(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     position_id = Column(Integer, ForeignKey("positions.id"), nullable=False)
-    stage_type = Column(SQLEnum(TPStageStatus), nullable=False)
+    stage_type = Column(SQLEnum(TPStageType), nullable=False)
     stage_number = Column(Integer, nullable=False)
     target_price = Column(Float, nullable=True)
     quantity = Column(Float, nullable=True)
