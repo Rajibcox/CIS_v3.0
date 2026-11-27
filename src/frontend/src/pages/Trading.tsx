@@ -241,7 +241,7 @@ export function TradingPage() {
               <p>Close {editingPosition.direction} {editingPosition.symbol} @ {editingPosition.quantity}?</p>
               <div className="flex gap-2 justify-end">
                 <Button variant="outline" onClick={() => setEditingPosition(null)}>Cancel</Button>
-                <Button variant="destructive" onClick={() => { /* close logic */ setEditingPosition(null); }}>
+                <Button variant="destructive" disabled onClick={() => { /* Close operation is not wired. */ setEditingPosition(null); }}>
                   Close Position
                 </Button>
               </div>
