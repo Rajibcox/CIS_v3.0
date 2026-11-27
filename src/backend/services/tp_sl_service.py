@@ -93,6 +93,7 @@ class TPSLManager:
         self.state = self._initialize_state()
         self._running = False
         self._monitor_task: Optional[asyncio.Task] = None
+        self.mode = "paper"
 
     def _initialize_state(self) -> Dict:
         """Initialize TP/SL state from position"""
@@ -123,7 +124,8 @@ class TPSLManager:
     async def start(self, mode: str = "paper"):
         """Start TP/SL monitoring"""
         self._running = True
-        # Place initial orders
+        self.mode = mode
+        # Price monitoring is authoritative for paper TP/SL triggers.
         await self._place_initial_orders(mode)
         # Start monitoring
         self._monitor_task = asyncio.create_task(self._monitor_loop())
@@ -162,62 +164,78 @@ class TPSLManager:
     async def _check_and_update(self):
         """Check TP/SL status and update if needed"""
         # Get current market price
-        ticker = await self.market_data_service.get_ticker(self.position.symbol)
+        ticker = await self.market_data_service.get_ticker(
+            self.position.symbol, self.position.exchange
+        )
         if not ticker:
             return
 
-        current_price = ticker.price
+        raw_price = ticker.get("price") if isinstance(ticker, dict) else getattr(ticker, "price", None)
+        if raw_price is None:
+            return
+        current_price = Decimal(str(raw_price))
 
-        # Check each TP level
+        # Check each TP level using the same fresh ticker snapshot.
         for stage in [1, 2, 3]:
-            tp_order = self.state['tp_orders'][stage]
-            if tp_order.status == TPStatus.PENDING or tp_order.status == TPStatus.ACTIVE:
-                if self._is_tp_triggered(stage, tp_order.target_price):
+            tp_order = self.state["tp_orders"][stage]
+            if tp_order.status in (TPStatus.PENDING, TPStatus.ACTIVE):
+                if self._is_tp_triggered(stage, tp_order.target_price, current_price):
                     await self._handle_tp_trigger(stage)
 
-        # Check runner trailing stop
-        if self.state['current_stage'] >= 3:
-            await self._update_runner_trailing()
+        # Check runner trailing stop.
+        if self.state["current_stage"] >= 3:
+            await self._update_runner_trailing(current_price)
 
-        # Check stop loss
-        if self._is_sl_triggered():
+        # Check stop loss after TP processing and trailing-stop adjustment.
+        if self._is_sl_triggered(current_price):
             await self._handle_sl_trigger()
 
-    def _is_tp_triggered(self, stage: int, target_price: Decimal) -> bool:
-        """Check if TP is triggered"""
-        ticker = self.market_data_service.get_ticker(self.position.symbol)
-        if not ticker:
-            return False
-
-        current_price = ticker.price
-
+    def _is_tp_triggered(
+        self, stage: int, target_price: Decimal, current_price: Decimal
+    ) -> bool:
+        """Check a take-profit threshold against the current market price."""
         if self.position.direction == "LONG":
             return current_price >= target_price
-        else:
-            return current_price <= target_price
+        return current_price <= target_price
 
-    def _is_sl_triggered(self) -> bool:
-        """Check if stop loss is triggered"""
-        ticker = self.market_data_service.get_ticker(self.position.symbol)
-        if not ticker:
-            return False
-
-        current_price = ticker.price
-        sl = self.state['stop_loss']
-
+    def _is_sl_triggered(self, current_price: Decimal) -> bool:
+        """Check the active stop-loss threshold against the current market price."""
+        stop_loss = Decimal(str(self.state["stop_loss"]))
         if self.position.direction == "LONG":
-            return ticker.price <= sl
-        else:
-            return ticker.price >= sl
+            return current_price <= stop_loss
+        return current_price >= stop_loss
 
     async def _handle_tp_trigger(self, stage: int):
         """Handle TP trigger"""
-        self.logger.info(f"TP{stage} triggered for {self.position.symbol}")
+        tp_order = self.state["tp_orders"][stage]
+        if tp_order.status in (TPStatus.TRIGGERED, TPStatus.FILLED):
+            return
 
-        # Update state
-        self.state['current_stage'] = stage
-        self.state['tp_orders'][stage].status = TPStatus.TRIGGERED
-        self.state['tp_orders'][stage].triggered_at = datetime.utcnow()
+        close_side = OrderSide.SELL if self.position.direction == "LONG" else OrderSide.BUY
+        result = await self.execution_service.place_order(
+            OrderParams(
+                symbol=self.position.symbol,
+                exchange=self.position.exchange,
+                side=close_side,
+                order_type=OrderType.MARKET,
+                quantity=tp_order.quantity,
+                reduce_only=True,
+                position_side=self.position.direction,
+            ),
+            mode=self.mode,
+        )
+        if result.status != OrderStatus.FILLED:
+            self.logger.error(
+                "TP%s close failed for %s: %s",
+                stage, self.position.symbol, result.error or result.status.value,
+            )
+            return
+
+        self.logger.info(f"TP{stage} triggered for {self.position.symbol}")
+        tp_order.status = TPStatus.FILLED
+        tp_order.triggered_at = datetime.utcnow()
+        tp_order.filled_at = datetime.utcnow()
+        self.state["current_stage"] = stage
 
         # Move stop loss to next level
         if stage == 1:
@@ -262,13 +280,8 @@ class TPSLManager:
         # Would call execution service
         self.logger.info(f"Updated stop loss to {new_sl}")
 
-    async def _update_runner_trailing(self):
-        """Update runner trailing stop"""
-        ticker = self.market_data_service.get_ticker(self.position.symbol)
-        if not ticker:
-            return
-
-        current_price = ticker.price
+    async def _update_runner_trailing(self, current_price: Decimal):
+        """Update runner trailing stop using the latest market price."""
 
         if self.position.direction == "LONG":
             # Trail up
@@ -303,10 +316,44 @@ class TPSLManager:
         return Decimal('100')  # Placeholder
 
     async def _handle_sl_trigger(self):
-        """Handle stop loss trigger"""
-        self.logger.info(f"Stop loss triggered for {self.position.symbol}")
-        # Would trigger position close
-        pass
+        """Close the remaining paper position when its stop loss is reached."""
+        filled_fraction = sum(
+            (
+                self.state["tp_orders"][stage].quantity
+                for stage in (1, 2, 3)
+                if self.state["tp_orders"][stage].status == TPStatus.FILLED
+            ),
+            Decimal("0"),
+        )
+        remaining_quantity = max(
+            Decimal("0"), Decimal(str(self.position.quantity)) - filled_fraction
+        )
+        if remaining_quantity <= 0:
+            self._running = False
+            return
+
+        close_side = OrderSide.SELL if self.position.direction == "LONG" else OrderSide.BUY
+        result = await self.execution_service.place_order(
+            OrderParams(
+                symbol=self.position.symbol,
+                exchange=self.position.exchange,
+                side=close_side,
+                order_type=OrderType.MARKET,
+                quantity=remaining_quantity,
+                reduce_only=True,
+                position_side=self.position.direction,
+            ),
+            mode=self.mode,
+        )
+        if result.status == OrderStatus.FILLED:
+            self.logger.info("Stop loss closed %s remaining quantity for %s",
+                             remaining_quantity, self.position.symbol)
+            self._running = False
+        else:
+            self.logger.error(
+                "Stop-loss close failed for %s: %s",
+                self.position.symbol, result.error or result.status.value,
+            )
 
 
 class TPSLService:
