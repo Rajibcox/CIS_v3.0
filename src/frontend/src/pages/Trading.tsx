@@ -496,7 +496,7 @@ function PnLAnalytics({ pnlSummary }: { pnlSummary: any }) {
           <CardHeader><CardTitle>Exit Reasons</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {Object.entries(pnlSummary.by_exit_reason || {}).map(([reason, count]) => (
-              <StatRow key={reason} label={reason} value={count} />
+              <StatRow key={reason} label={reason} value={String(count)} />
             ))}
           </CardContent>
         </Card>
