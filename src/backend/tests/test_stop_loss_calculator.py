@@ -103,8 +103,11 @@ def test_missing_atr_parameters_are_rejected():
         )
 
 
-def test_unknown_parameters_are_rejected():
-    with pytest.raises(StopLossCalculationError, match="Unsupported"):
+def test_atr_parameters_are_rejected_when_buffer_disabled():
+    with pytest.raises(
+        StopLossCalculationError,
+        match="ATR parameters are not allowed",
+    ):
         calculate_initial_stop_loss(
             direction="LONG", entry_price="120", candles=_candles(),
             parameters={"lookback_candles": 3, "atr_multiplier": 2},
