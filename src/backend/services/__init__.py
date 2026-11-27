@@ -70,7 +70,10 @@ class ServiceContainer:
         await self.risk_service.initialize()
 
         self.execution_service = ExecutionService(
-            self.config, self.risk_service, self.market_data
+            self.config,
+            self.risk_service,
+            self.market_data,
+            session_factory=self.session_factory,
         )
         await self.execution_service.initialize()
 
@@ -79,10 +82,13 @@ class ServiceContainer:
             self.execution_service,
             self.market_data,
             self.risk_service,
+            session_factory=self.session_factory,
         )
         await self.tp_sl_service.initialize()
 
-        self.pnl_service = PnLService(self.config)
+        self.pnl_service = PnLService(
+            self.config, session_factory=self.session_factory
+        )
         await self.pnl_service.initialize()
 
         self.signal_service = SignalService(
