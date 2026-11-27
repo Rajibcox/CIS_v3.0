@@ -27,7 +27,6 @@ class FakeMarketData:
         return {"price": Decimal("50000")}
 
 
-
 @pytest.fixture
 def execution_context(config):
     config.settings.mock_exchange = True
@@ -58,6 +57,7 @@ def exchange_symbol(db_session):
     db_session.add(symbol)
     db_session.commit()
     return exchange, symbol
+
 
 def _signal():
     return SimpleNamespace(
@@ -193,5 +193,7 @@ async def test_generic_order_persistence_failure_removes_ephemeral_order(
         await service.place_order(params, mode="paper", db=db_session)
 
     db_session.rollback()
+    # Restore autoflush before querying; the injected failure is test-only.
+    monkeypatch.setattr(db_session, "flush", original_flush)
     assert db_session.query(Order).count() == 0
     assert service.paper_executor.orders == {}
