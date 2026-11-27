@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useFullConfig, useExchangeConfigs, useUpdateExchangeConfig, useTestExchangeConnection } from '../hooks/useConfig';
+import { useFullConfig, useExchangeConfigs, useUpdateExchangeConfig } from '../hooks/useConfig';
 import { useValidateConfig, useRunBackup, useConfigVersion, useResetConfig, useExportConfig, useImportConfig } from '../hooks/useConfig';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -21,7 +21,6 @@ export function ConfigurationPage() {
   const { data: config, isLoading } = useFullConfig();
   const { data: exchangeConfigs } = useExchangeConfigs();
   const updateExchangeConfig = useUpdateExchangeConfig();
-  const testExchangeConnection = useTestExchangeConnection();
   const validateConfig = useValidateConfig();
   const runBackup = useRunBackup();
   const { data: version } = useConfigVersion();
@@ -189,7 +188,6 @@ export function ConfigurationPage() {
             forms={exchangeForms}
             onFormChange={setExchangeForms}
             onSave={(data: Record<string, any>) => handleSave('exchanges', data)}
-            onTest={testExchangeConnection}
           />
         </TabsContent>
 
@@ -516,7 +514,7 @@ export function ConfigurationPage() {
 }
 
 // Helper Components
-function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
+function ExchangesTab({ exchanges, forms, onFormChange, onSave }: any) {
   return (
     <div className="space-y-6">
       {exchanges.map((exch: any) => {
