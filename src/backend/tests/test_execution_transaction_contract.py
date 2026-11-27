@@ -180,6 +180,23 @@ async def test_pending_paper_order_is_persisted_in_caller_transaction(
 
 
 @pytest.mark.asyncio
+async def test_standalone_paper_order_keeps_in_memory_cache(execution_context):
+    service, _market_data = execution_context
+    params = OrderParams(
+        symbol="BTCUSDT",
+        exchange="binance",
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Decimal("0.01"),
+    )
+
+    result = await service.place_order(params, mode="paper")
+
+    assert result.status.value == "filled"
+    assert result.order_id in service.paper_executor.orders
+
+
+@pytest.mark.asyncio
 async def test_generic_order_persistence_failure_leaves_no_cached_order(
     execution_context, db_session, exchange_symbol, monkeypatch
 ):
