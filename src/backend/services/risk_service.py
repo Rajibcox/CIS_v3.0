@@ -182,10 +182,15 @@ class RiskEngine:
         # For now, assume sufficient
 
         # 6. Calculate liquidation price
-        maint_margin_rate = Decimal(str(0.005))  # 0.5% default
+        maint_margin_rate = Decimal('0.005')  # 0.5% default
+        leverage_decimal = Decimal(str(max_leverage))
         if notional > 0:
-            liquidation_price = entry_price * (1 - (1 / max_leverage) + maint_margin_rate)
-            liquidation_buffer = (entry_price - liquidation_price) / entry_price * 100
+            liquidation_price = entry_price * (
+                Decimal('1') - (Decimal('1') / leverage_decimal) + maint_margin_rate
+            )
+            liquidation_buffer = (
+                (entry_price - liquidation_price) / entry_price * Decimal('100')
+            )
         else:
             liquidation_price = None
             liquidation_buffer = Decimal('0')
