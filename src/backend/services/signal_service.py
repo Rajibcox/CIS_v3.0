@@ -418,15 +418,28 @@ class SignalService:
         return await self._generate_signals()
 
     async def _generate_signals(self) -> List[Any]:
-        """Generate signals for all active strategies"""
-        # This would:
-        # 1. Get active strategies
-        # 2. Get market snapshots
-        # 3. Generate candidates
-        # 4. Score and validate
-        # 5. Create signals
-        # 6. Store in database
-        pass
+        """Generate signals for all active strategies.
+
+        Signal generation currently has no scanner snapshot input or database
+        session in this service's constructor. Until those existing inputs are
+        provided by the caller, and strategies have loaded active entry rules,
+        the safe result is an empty collection. In particular, zero-rule
+        strategies must not be treated as unconditional signal candidates.
+        """
+        strategy_engine = getattr(self.strategy_service, "engine", None)
+        rule_cache = getattr(strategy_engine, "_rule_cache", None)
+
+        if not rule_cache:
+            self.logger.info(
+                "Signal generation skipped: no active strategy rules are loaded."
+            )
+            return []
+
+        self.logger.info(
+            "Signal generation skipped: scanner snapshots are not available "
+            "to SignalService; returning no candidates."
+        )
+        return []
 
     def register_callback(self, callback: Callable):
         """Register callback for new signals"""
