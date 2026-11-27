@@ -379,13 +379,13 @@ class PortfolioRiskManager:
             'open_positions': self.config.settings.max_simultaneous_positions - budget.max_new_positions,
             'max_positions': self.config.settings.max_simultaneous_positions,
             'daily_pnl': float(budget.daily_realized_pnl),
-            'daily_loss_limit': float(self.config.settings.initial_equity * Decimal(str(self.config.settings.daily_loss_limit))),
+            'daily_loss_limit': float(Decimal(str(self.config.settings.initial_equity)) * Decimal(str(self.config.settings.daily_loss_limit))),
             'daily_loss_used_pct': float((budget.daily_realized_pnl / budget.remaining_daily_risk * 100) if budget.remaining_daily_risk > 0 else 0),
             'current_drawdown': float(budget.current_drawdown * 100),
             'drawdown_warning': float(self.config.settings.drawdown_warning * 100),
             'emergency_drawdown': float(self.config.settings.emergency_drawdown * 100),
             'correlated_exposure': float(budget.correlated_exposure),
-            'max_correlated_exposure': float(self.config.settings.initial_equity * Decimal('0.5'))
+            'max_correlated_exposure': float(Decimal(str(self.config.settings.initial_equity)) * Decimal('0.5'))
         }
 
 
