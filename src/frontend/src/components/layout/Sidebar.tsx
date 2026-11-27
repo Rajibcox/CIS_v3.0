@@ -32,7 +32,11 @@ import {
   ChevronRight,
 } from 'lucide-react';
 
-const navigation = [
+type NavigationItem =
+  | { name: string; href: string; icon: typeof LayoutDashboard }
+  | { name: string; icon: typeof LayoutDashboard; children: { name: string; href: string }[] };
+
+const navigation: NavigationItem[] = [
   { name: 'Overview', href: '/', icon: LayoutDashboard },
   {
     name: 'Market Intelligence',
