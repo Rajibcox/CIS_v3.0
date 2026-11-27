@@ -6,31 +6,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from src.backend.api.auth import auth_router, validate_auth_settings, verify_token
 from src.backend.api.router import api_router, ws_router
 from src.backend.services import initialize_services, shutdown_services
 from src.backend.utils.config import Config
 from src.backend.utils.logger import setup_logging
-
-
-# Security
-security = HTTPBearer(auto_error=False)
-
-
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token (mock for now)."""
-    if credentials is None:
-        # Allow unauthenticated for development
-        return {"user_id": "dev", "username": "developer", "role": "admin"}
-
-    # In production, verify JWT token
-    # For now, accept any token for development
-    return {"user_id": "dev", "username": "developer", "role": "admin"}
 
 
 def create_app(config: Config = None) -> FastAPI:
@@ -38,6 +23,10 @@ def create_app(config: Config = None) -> FastAPI:
 
     if config is None:
         config = Config()
+
+    # Refuse to expose the application unless a real local administrator and
+    # a non-placeholder signing key have been provisioned.
+    validate_auth_settings(config.settings)
 
     database_url = config.settings.database_url
     connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
@@ -55,9 +44,6 @@ def create_app(config: Config = None) -> FastAPI:
             app.state.services = await initialize_services(config, SessionFactory)
             yield
         finally:
-            # initialize_services may fail after creating some services.
-            # Always attempt cleanup so partially initialized services do not
-            # leave background tasks, sockets, or other resources running.
             await shutdown_services()
             engine.dispose()
             print("Shutting down...")
@@ -72,25 +58,23 @@ def create_app(config: Config = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Keep the configuration available to routes and extensions.
     app.state.config = config
     app.state.engine = engine
     app.state.session_factory = SessionFactory
 
-    # CORS configuration
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # In production, restrict to specific origins
+        allow_origins=["*"],  # Narrowed separately in R0-4.
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Include API routes
+    # Login is public; /me performs its own strict bearer-token validation.
+    app.include_router(auth_router)
     app.include_router(api_router, dependencies=[Depends(verify_token)])
     app.include_router(ws_router)
 
-    # Health check (no auth required)
     @app.get("/health")
     async def health_check():
         return {
@@ -99,7 +83,6 @@ def create_app(config: Config = None) -> FastAPI:
             "mode": "paper",
         }
 
-    # Where the built dashboard lives (npm run build in src/frontend)
     frontend_dist = config.settings.project_root / "src" / "frontend" / "dist"
 
     async def api_info():
@@ -120,7 +103,6 @@ def create_app(config: Config = None) -> FastAPI:
     if not frontend_dist.exists():
         app.add_api_route("/", api_info, methods=["GET"])
 
-    # Serve frontend static files (when built)
     if frontend_dist.exists():
         app.mount("/static", StaticFiles(directory=str(frontend_dist)), name="static")
 

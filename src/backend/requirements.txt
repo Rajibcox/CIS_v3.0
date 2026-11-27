@@ -1,4 +1,4 @@
-﻿# QUANTUM TRADER V1 - Python Dependencies
+# QUANTUM TRADER V1 - Python Dependencies
 # All versions selected for Windows compatibility with pre-compiled wheels
 
 # Core dependencies
@@ -22,6 +22,7 @@ numpy==2.1.3
 # Authentication and security
 python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
+argon2-cffi==23.1.0
 python-dotenv==1.0.1
 
 # Telegram

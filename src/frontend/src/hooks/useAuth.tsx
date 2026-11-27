@@ -1,10 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { api } from '../services/api';
 
 interface User {
   id: string;
   username: string;
   role: string;
-  email?: string;
+}
+
+interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: User;
 }
 
 interface AuthContextType {
@@ -18,51 +25,59 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function getApiErrorMessage(error: unknown): string {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error
+  ) {
+    const response = (error as { response?: { data?: { detail?: unknown } } }).response;
+    if (typeof response?.data?.detail === 'string') {
+      return response.data.detail;
+    }
+  }
+  return error instanceof Error ? error.message : 'Authentication failed';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing token on mount
   useEffect(() => {
+    let active = true;
+
     const initAuth = async () => {
       const token = localStorage.getItem('auth_token');
       if (token) {
         try {
-          // In a real app, validate token with backend
-          // For now, just set a mock user
-          setUser({
-            id: '1',
-            username: 'admin',
-            role: 'admin',
-            email: 'admin@quantumtrader.local',
-          });
+          const currentUser = await api.get<User>('/auth/me');
+          if (active) setUser(currentUser);
         } catch {
           localStorage.removeItem('auth_token');
+          if (active) setUser(null);
         }
       }
-      setIsLoading(false);
+      if (active) setIsLoading(false);
     };
 
-    initAuth();
+    void initAuth();
+    return () => {
+      active = false;
+    };
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {
-    // Mock login - in real app, call backend API
-    // const response = await api.post('/auth/login', { username, password });
-    // localStorage.setItem('auth_token', response.data.access_token);
-
-    // Mock validation
-    if (username === 'admin' && password === 'admin') {
-      const mockUser: User = {
-        id: '1',
-        username: 'admin',
-        role: 'admin',
-        email: 'admin@quantumtrader.local',
-      };
-      localStorage.setItem('auth_token', 'mock-jwt-token-' + Date.now());
-      setUser(mockUser);
-    } else {
-      throw new Error('Invalid credentials');
+    try {
+      const response = await api.post<AuthResponse>('/auth/login', { username, password });
+      if (!response.access_token || response.token_type.toLowerCase() !== 'bearer') {
+        throw new Error('The authentication server returned an invalid response');
+      }
+      localStorage.setItem('auth_token', response.access_token);
+      setUser(response.user);
+    } catch (error) {
+      localStorage.removeItem('auth_token');
+      setUser(null);
+      throw new Error(getApiErrorMessage(error));
     }
   }, []);
 
@@ -71,11 +86,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
+  // The current backend issues short-lived access tokens but has no refresh
+  // token endpoint. This method therefore revalidates the current session.
   const refreshToken = useCallback(async () => {
-    // Mock refresh - in real app, call backend refresh endpoint
     const token = localStorage.getItem('auth_token');
-    if (token) {
-      // localStorage.setItem('auth_token', newToken);
+    if (!token) {
+      setUser(null);
+      return;
+    }
+    try {
+      const currentUser = await api.get<User>('/auth/me');
+      setUser(currentUser);
+    } catch (error) {
+      localStorage.removeItem('auth_token');
+      setUser(null);
+      throw new Error(getApiErrorMessage(error));
     }
   }, []);
 

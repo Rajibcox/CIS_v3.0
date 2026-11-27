@@ -64,6 +64,7 @@ export function LoginPage() {
                 <Input
                   id="username"
                   placeholder="Enter username"
+                  autoComplete="username"
                   {...register('username', { required: 'Username is required' })}
                   className="pl-10"
                   disabled={isSubmitting}
@@ -82,6 +83,7 @@ export function LoginPage() {
                   id="password"
                   type="password"
                   placeholder="Enter password"
+                  autoComplete="current-password"
                   {...register('password', { required: 'Password is required' })}
                   className="pl-10"
                   disabled={isSubmitting}
@@ -96,12 +98,6 @@ export function LoginPage() {
               {isSubmitting ? 'Signing in...' : 'Sign In'}
             </Button>
           </form>
-
-          <div className="mt-6 p-3 rounded-md bg-muted/50 text-xs text-muted-foreground text-center">
-            <p className="font-medium mb-1">Demo Credentials</p>
-            <p>Username: <code className="font-mono">admin</code></p>
-            <p>Password: <code className="font-mono">admin</code></p>
-          </div>
         </CardContent>
       </Card>
     </div>
