@@ -65,6 +65,25 @@ def _payload(name="API persisted strategy"):
     }
 
 
+def test_strategy_api_create_read_and_list_persist_across_requests(api_client):
+    client, factory, _ = api_client
+    created = client.post("/api/v1/strategies", json=_payload())
+    assert created.status_code == 201, created.text
+    strategy_id = created.json()["id"]
+
+    fetched = client.get(f"/api/v1/strategies/{strategy_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["name"] == "API persisted strategy"
+
+    listed = client.get("/api/v1/strategies")
+    assert listed.status_code == 200
+    assert any(item["id"] == strategy_id for item in listed.json())
+
+    with factory() as db:
+        rules = db.query(StrategyRule).filter_by(strategy_id=strategy_id).all()
+        assert {rule.rule_type for rule in rules} == {"entry", "exit"}
+
+
 def _trade_plan():
     return {
         "schema_version": 1,

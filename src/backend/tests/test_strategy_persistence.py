@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -194,7 +195,7 @@ def test_take_profit_target_rejects_unsupported_or_invalid_method_parameters(tar
 
     plan = _trade_plan()
     plan["take_profit"]["targets"]["tp1"] = target
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         TradePlanConfig.model_validate(plan)
 
 
