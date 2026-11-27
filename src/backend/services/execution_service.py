@@ -13,7 +13,8 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from src.backend.models.database import (
-    Position, Order, OrderStatus, OrderType, Signal
+    Position, Order, OrderStatus, OrderType as DBOrderType,
+    PositionStatus, SignalDirection, Exchange, Symbol
 )
 from src.backend.services.risk_service import RiskService, LeverageDecision
 from src.backend.utils.config import Config
@@ -439,11 +440,10 @@ class ExecutionService:
         self._running = False
 
     async def initialize(self):
-        """Initialize execution service"""
+        """Initialize execution service without opening live exchange connections."""
         self.logger.info("Initializing Execution Service...")
-
-        # PaperExecutor is fully initialized by __init__; never await __init__.
-        # Initialize live executors (when credentials available)
+        # Live executors are intentionally not initialized by the paper-mode
+        # service startup path.
         self._running = True
         self.logger.info("Execution Service initialized")
 
@@ -456,11 +456,48 @@ class ExecutionService:
     async def place_order(
         self,
         params: OrderParams,
-        mode: str = "paper"
+        mode: str = "paper",
+        db: Optional[Session] = None,
+        position_id: Optional[int] = None,
     ) -> OrderResult:
-        """Place an order"""
+        """Place an order through the selected, explicitly permitted executor."""
+        if (
+            self.config.settings.mock_exchange
+            and self.config.settings.paper_trading
+            and mode != "paper"
+        ):
+            return OrderResult(
+                order_id="",
+                exchange_order_id="",
+                symbol=params.symbol,
+                exchange=params.exchange,
+                status=OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=datetime.utcnow(),
+                error="Live execution is disabled while mock exchange and paper trading are enabled",
+            )
+
         if mode == "paper":
-            return await self.paper_executor.place_order(params)
+            result = await self.paper_executor.place_order(params)
+            if db is not None and result.status in (OrderStatus.FILLED, OrderStatus.PENDING):
+                self._persist_paper_order(db, params, result, position_id=position_id)
+            return result
+
+        if mode != "live":
+            return OrderResult(
+                order_id="",
+                exchange_order_id="",
+                symbol=params.symbol,
+                exchange=params.exchange,
+                status=OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=datetime.utcnow(),
+                error=f"Unsupported execution mode: {mode}",
+            )
 
         executor = self.executors.get(params.exchange)
         if not executor:
@@ -479,11 +516,54 @@ class ExecutionService:
 
         return await executor.place_order(params)
 
+    @staticmethod
+    def _persist_paper_order(
+        db: Session,
+        params: OrderParams,
+        result: OrderResult,
+        position_id: Optional[int] = None,
+    ) -> Order:
+        """Persist a simulated order using the configured exchange/symbol rows."""
+        exchange = db.query(Exchange).filter_by(name=params.exchange).one_or_none()
+        symbol = (
+            db.query(Symbol)
+            .filter_by(symbol=params.symbol, exchange_id=exchange.id)
+            .one_or_none()
+            if exchange is not None
+            else None
+        )
+        if exchange is None or symbol is None:
+            raise ValueError(
+                f"Cannot persist paper order: exchange/symbol not found "
+                f"({params.exchange}:{params.symbol})"
+            )
+
+        order = Order(
+            position_id=position_id,
+            exchange_id=exchange.id,
+            symbol_id=symbol.id,
+            exchange_order_id=result.exchange_order_id,
+            order_type=DBOrderType(params.order_type.value),
+            side=params.side.value,
+            quantity=float(params.quantity),
+            price=float(params.price) if params.price is not None else None,
+            stop_price=float(params.stop_price) if params.stop_price is not None else None,
+            status=result.status,
+            filled_quantity=float(result.filled_quantity),
+            average_fill_price=float(result.average_fill_price),
+            fees=float(result.fees),
+            filled_at=result.timestamp if result.status == OrderStatus.FILLED else None,
+        )
+        db.add(order)
+        db.flush()
+        return order
+
     async def place_entry_order(
         self,
         signal: Any,
         leverage_decision: "LeverageDecision",
-        mode: str = "paper"
+        mode: str = "paper",
+        db: Optional[Session] = None,
     ) -> OrderResult:
         """Place entry order from signal"""
         # Determine side
@@ -503,7 +583,41 @@ class ExecutionService:
             position_side=signal.direction
         )
 
-        return await self.place_order(params, mode)
+        result = await self.place_order(params, mode)
+        if db is not None and result.status == OrderStatus.FILLED:
+            exchange = db.query(Exchange).filter_by(name=signal.exchange).one_or_none()
+            symbol = (
+                db.query(Symbol)
+                .filter_by(symbol=signal.symbol, exchange_id=exchange.id)
+                .one_or_none()
+                if exchange is not None
+                else None
+            )
+            if exchange is None or symbol is None:
+                raise ValueError(
+                    f"Cannot create paper position: exchange/symbol not found "
+                    f"({signal.exchange}:{signal.symbol})"
+                )
+            position = Position(
+                signal_id=getattr(signal, "id", None),
+                exchange_id=exchange.id,
+                symbol_id=symbol.id,
+                direction=SignalDirection(signal.direction),
+                entry_price=float(result.average_fill_price),
+                quantity=float(result.filled_quantity),
+                notional_value=float(result.average_fill_price * result.filled_quantity),
+                margin_used=float(
+                    result.average_fill_price * result.filled_quantity
+                    / Decimal(str(leverage_decision.selected_leverage))
+                ),
+                leverage_used=float(leverage_decision.selected_leverage),
+                status=PositionStatus.OPEN,
+                open_time=result.timestamp,
+            )
+            db.add(position)
+            db.flush()
+            self._persist_paper_order(db, params, result, position_id=position.id)
+        return result
 
     async def place_tp_sl_orders(
         self,
@@ -623,12 +737,3 @@ class ExecutionService:
         # Would close all positions
         self.logger.warning("EMERGENCY CLOSE ALL TRIGGERED")
         return closed
-
-    async def initialize(self):
-        """Initialize execution service"""
-        self.logger.info("Execution Service initialized")
-
-    async def shutdown(self):
-        """Shutdown execution service"""
-        for executor in self.executors.values():
-            await executor.close()
