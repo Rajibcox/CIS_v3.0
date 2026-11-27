@@ -60,6 +60,7 @@ class HistoricalDataService:
         self.market_data_service = market_data_service
         self.logger = logging.getLogger(__name__)
         self._running = False
+        self._backfill_task: Optional[asyncio.Task] = None
         self._backfill_queue: asyncio.Queue = asyncio.Queue()
         self._active_jobs: Dict[str, BackfillJob] = {}
         self._completed_jobs: List[BackfillJob] = []
@@ -68,13 +69,22 @@ class HistoricalDataService:
         """Initialize historical data service"""
         self.logger.info("Initializing Historical Data Service...")
         self._running = True
-        asyncio.create_task(self._process_backfill_queue())
+        if self._backfill_task is None or self._backfill_task.done():
+            self._backfill_task = asyncio.create_task(self._process_backfill_queue())
         self.logger.info("Historical Data Service initialized")
 
     async def shutdown(self):
         """Shutdown service"""
         self.logger.info("Shutting down Historical Data Service...")
         self._running = False
+        if self._backfill_task is not None:
+            self._backfill_task.cancel()
+            try:
+                await self._backfill_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._backfill_task = None
 
     async def store_candles(self, db: Session, candles: List[CandleData]) -> Tuple[int, int]:
         """Store candles in database with deduplication"""
