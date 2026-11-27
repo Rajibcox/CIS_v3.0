@@ -202,7 +202,8 @@ class MarketScanner:
             snapshots = await self._build_market_snapshots()
 
             # Run filters
-            results = await self._run_filters(snapshots)
+            # _run_filters is a synchronous generator; consume it rather than awaiting it.
+            results = list(self._run_filters(snapshots))
 
             # Sort by signal score
             results.sort(key=lambda x: x.signal_score, reverse=True)
