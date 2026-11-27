@@ -505,7 +505,7 @@ function PnLAnalytics({ pnlSummary }: { pnlSummary: any }) {
           <CardHeader><CardTitle>TP Stages</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {Object.entries(pnlSummary.by_tp_stage || {}).map(([stage, count]) => (
-              <StatRow key={stage} label={`Stage ${stage}`} value={count} />
+              <StatRow key={stage} label={`Stage ${stage}`} value={String(count)} />
             ))}
           </CardContent>
         </Card>
