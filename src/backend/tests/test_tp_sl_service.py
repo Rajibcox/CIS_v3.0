@@ -116,10 +116,20 @@ async def test_tp_trigger_executes_paper_close_and_updates_position_and_database
     await service.add_position(position)
     try:
         manager = service.managers[position.id]
+        # TP1 is 51,000: move the mock market to the actual target before
+        # invoking the handler so paper slippage is applied to a profitable exit.
+        market_data.price = Decimal("51000")
         await manager._handle_tp_trigger(1)
         assert manager.state["tp_orders"][1].status == "filled"
         assert position.quantity == pytest.approx(0.006)
         assert position.status == PositionStatus.OPEN
+        order = db.query(Order).filter_by(position_id=position.id).one()
+        gross_pnl = (
+            (Decimal(str(order.average_fill_price)) - Decimal("50000"))
+            * Decimal("0.004")
+        )
+        expected_net_pnl = gross_pnl - Decimal(str(order.fees))
+        assert position.realized_pnl == pytest.approx(float(expected_net_pnl))
         assert position.realized_pnl > 0
         stage = db.query(TP_SL_Stage).filter_by(position_id=position.id, stage_number=1).one()
         assert stage.status == TPStageStatus.FILLED
@@ -244,5 +254,30 @@ async def test_market_price_crossing_tp_runs_trigger_and_updates_position(tp_con
         await manager._check_and_update()
         assert manager.state["tp_orders"][1].status == "filled"
         assert position.quantity == pytest.approx(0.006)
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "direction,exit_price,expected_gross",
+    [
+        ("LONG", Decimal("51000"), Decimal("4")),
+        ("SHORT", Decimal("49000"), Decimal("4")),
+    ],
+)
+async def test_realized_pnl_uses_correct_direction_and_deducts_closing_fee(
+    tp_context, direction, exit_price, expected_gross
+):
+    service, position, *_rest = tp_context
+    await service.initialize()
+    await service.add_position(position)
+    try:
+        manager = service.managers[position.id]
+        manager.state["direction"] = direction
+        manager._update_position_after_fill(
+            Decimal("0.004"), exit_price, fees=Decimal("0.20")
+        )
+        assert position.realized_pnl == pytest.approx(float(expected_gross - Decimal("0.20")))
     finally:
         await service.shutdown()
