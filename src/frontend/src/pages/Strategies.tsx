@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/common/T
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/common/Dialog';
 import { Input } from '../components/common/Input';
 import { Label } from '../components/common/Label';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormReturn } from 'react-hook-form';
 import { Zap, Plus, Edit, Trash2, BarChart2, Settings, Copy, CheckCircle, AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { cn } from '../utils/cn';
 import type { StrategyResponse, StrategyCreate, IndicatorInfo, RuleCondition, RuleGroup, StrategyRuleSet } from '../types/api';
@@ -41,6 +41,16 @@ export function StrategiesPage() {
       },
     },
   });
+
+  const handleSaveStrategy = (data: StrategyCreate) => {
+    createStrategy.mutate(data, {
+      onSuccess: () => {
+        strategyForm.reset();
+        setEditingStrategy(null);
+        setActiveTab('list');
+      },
+    });
+  };
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
@@ -94,6 +104,7 @@ export function StrategiesPage() {
           <StrategyBuilder
             initialStrategy={editingStrategy}
             indicators={indicators || []}
+            strategyForm={strategyForm}
             onSave={(data) => handleSaveStrategy(data)}
             onCancel={() => { setEditingStrategy(null); setActiveTab('list'); }}
           />
@@ -249,14 +260,17 @@ function IndicatorsTable({ indicators }: { indicators: IndicatorInfo[] }) {
 function StrategyBuilder({
   initialStrategy,
   indicators,
+  strategyForm,
   onSave,
   onCancel,
 }: {
   initialStrategy: StrategyResponse | null;
   indicators: IndicatorInfo[];
+  strategyForm: UseFormReturn<StrategyCreate>;
   onSave: (data: StrategyCreate) => void;
   onCancel: () => void;
 }) {
+  const validateStrategy = useValidateStrategy();
   const [activeSection, setActiveSection] = useState<'entry' | 'exit' | 'long' | 'short'>('entry');
   const [ruleGroups, setRuleGroups] = useState<StrategyRuleSet>({
     entry_rules: { operator: 'AND', conditions: [], groups: [] },
@@ -582,10 +596,10 @@ function ConditionEditor({
             onChange={(e) => onUpdate({ operator: e.target.value as any })}
             className="h-8 rounded-md border border-input bg-background px-2 text-sm w-24"
           >
-            <option value=">">></option>
-            <option value="<"><</option>
-            <option value=">=">>=</option>
-            <option value="<="><=</option>
+            <option value=">">{'>'}</option>
+            <option value="<">{'<'}</option>
+            <option value=">=">{'>='}</option>
+            <option value="<=">{'<='}</option>
             <option value="==">==</option>
             <option value="crosses_above">Crosses Above</option>
             <option value="crosses_below">Crosses Below</option>
@@ -698,5 +712,4 @@ function ConditionEditor({
 }
 
 // Need to import icons
-import { Plus, X, CheckCircle, AlertTriangle, Trash2, Settings, Copy, ExternalLink, Zap } from 'lucide-react';
 import { formatCurrency } from '../utils/format';

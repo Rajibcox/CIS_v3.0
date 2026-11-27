@@ -859,6 +859,11 @@ export interface TelegramCommandLog {
   timestamp: string;
 }
 
+export interface LiveTradingAction {
+  action: 'check_eligibility' | 'arm' | 'confirm' | 'disarm' | 'emergency_stop';
+  confirmation?: string;
+}
+
 export interface LiveTradingStatus {
   state: LiveTradingState;
   eligibility_checks: Record<string, boolean>;

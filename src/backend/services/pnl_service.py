@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func, desc, extract
 
 from src.backend.models.database import (
-    Position, Order, OrderStatus, OrderSide, Signal, PnLEntry
+    Position, Order, OrderStatus, Signal
 )
 from src.backend.utils.config import Config
 from src.backend.utils.logger import get_logger

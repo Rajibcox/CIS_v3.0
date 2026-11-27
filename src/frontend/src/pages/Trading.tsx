@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { usePaperStatus, usePositions, usePaperTrade, useTradeHistory, usePnLSummary, usePaperControl } from '../hooks/useDashboard';
+import { usePaperStatus, useOpenPositions as usePositions, usePaperTrade, useTradeHistory, usePnLSummary, usePaperControl } from '../hooks/useDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/common/Table';
@@ -369,10 +369,10 @@ function PositionsTable({ positions, onClose }: { positions: Position[]; onClose
                   <TableCell className="text-right font-mono">{pos.entry_price.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono">{pos.current_price.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono">{pos.quantity}</TableCell>
-                  <TableCell className="text-right font-mono font-medium" className={pos.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  <TableCell className={cn("text-right font-mono font-medium", pos.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400')}>
                     {formatCurrency(pos.unrealized_pnl)}
                   </TableCell>
-                  <TableCell className="text-right font-mono font-medium" className={pos.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  <TableCell className={cn("text-right font-mono font-medium", pos.unrealized_pnl >= 0 ? 'text-green-400' : 'text-red-400')}>
                     {pos.entry_price > 0 ? formatPct((pos.current_price - pos.entry_price) / pos.entry_price * 100) : '0%'}
                   </TableCell>
                   <TableCell className="text-right font-mono">{pos.leverage}x</TableCell>
@@ -445,7 +445,7 @@ function TradeHistoryTable({ trades }: { trades: any[] }) {
                   <TableCell className="text-right font-mono">{trade.entry_price.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono">{trade.exit_price.toLocaleString()}</TableCell>
                   <TableCell className="text-right font-mono">{trade.quantity}</TableCell>
-                  <TableCell className="text-right font-mono font-medium" className={trade.net_pnl >= 0 ? 'text-green-400' : 'text-red-400'}>
+                  <TableCell className={cn("text-right font-mono font-medium", trade.net_pnl >= 0 ? 'text-green-400' : 'text-red-400')}>
                     {formatCurrency(trade.net_pnl)}
                   </TableCell>
                   <TableCell className="text-right font-mono">{trade.r_multiple.toFixed(2)}</TableCell>
@@ -524,6 +524,3 @@ function StatRow({ label, value, className }: { label: string; value: string | n
 }
 
 // Need to import Dialog and Shield
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/common/Dialog';
-import { Shield } from 'lucide-react';
-import { Pause, Play } from 'lucide-react';

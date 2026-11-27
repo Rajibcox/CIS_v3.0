@@ -86,19 +86,26 @@ def create_app(config: Config = None) -> FastAPI:
             "mode": "paper"
         }
 
-    # Root endpoint
-    @app.get("/")
-    async def root():
+    # Where the built dashboard lives (npm run build in src/frontend)
+    frontend_dist = config.settings.project_root / "src" / "frontend" / "dist"
+
+    # JSON status endpoint. Always available at /api-info; it is also the
+    # root page only when the dashboard has not been built yet.
+    async def api_info():
         return {
             "name": config.settings.app_name,
             "version": config.settings.version,
             "status": "running",
             "docs": "/docs",
-            "health": "/health"
+            "health": "/health",
+            "dashboard": "built" if frontend_dist.exists() else "not built - run: cd src/frontend && npm install && npm run build",
         }
 
+    app.add_api_route("/api-info", api_info, methods=["GET"])
+    if not frontend_dist.exists():
+        app.add_api_route("/", api_info, methods=["GET"])
+
     # Serve frontend static files (when built)
-    frontend_dist = config.settings.project_root / "src" / "frontend" / "dist"
     if frontend_dist.exists():
         app.mount("/static", StaticFiles(directory=str(frontend_dist)), name="static")
 

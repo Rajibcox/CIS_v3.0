@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/common/T
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/common/Dialog';
 import { Input } from '../components/common/Input';
 import { Label } from '../components/common/Label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/common/Select';
 import { cn } from '../utils/cn';
 import {
   Activity, Server, Database, HardDrive, MemoryStick, Wifi, WifiOff,
@@ -125,7 +126,7 @@ export function SystemPage() {
                   <StatRow label="Total" value={`${health?.disk_usage?.total_gb || 0} GB`} />
                   <StatRow label="Used" value={`${health?.disk_usage?.used_gb || 0} GB`} />
                   <StatRow label="Free" value={`${health?.disk_usage?.free_gb || 0} GB`} />
-                </CardContent
+                </CardContent>
               </Card>
 
               <Card>
@@ -616,4 +617,3 @@ function formatCheckName(key: string): string {
 }
 
 // Need hooks
-import { useSystemHealth, useLogs, useTelegramStatus, useLiveTradingStatus, useStorageInfo, useBackups, useAuditLogs, useSystemEvents, useDiagnostics } from '../hooks/useSystem';

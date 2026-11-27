@@ -80,7 +80,7 @@ class ExchangeAdapter:
         self._symbol_info_cache = {}
         self._ws_connections: Dict[str, Any] = {}
 
-    async def initialize(self):`n        self._generate_mock_data()
+    async def initialize(self):
         """Initialize CCXT exchange"""
         exchange_class = getattr(ccxt, self.exchange_name)
         exchange_config = self.config.get_exchange_config(self.exchange_name)
@@ -346,7 +346,7 @@ class MockExchangeAdapter(ExchangeAdapter):
                     })
                 self._mock_candles[(symbol, '1h')] = candles
 
-    async def initialize(self):`n        self._generate_mock_data()
+    async def initialize(self):
         """Initialize mock adapter"""
         self._build_symbol_map()
         self.logger.info(f"Initialized mock {self.exchange_name} adapter")
@@ -436,7 +436,7 @@ class MarketDataService:
         self._ticker_cache: Dict[str, Dict] = {}
         self._last_update: Dict[str, datetime] = {}
 
-    async def initialize(self):`n        self._generate_mock_data()
+    async def initialize(self):
         """Initialize market data service"""
         self.logger.info("Initializing Market Data Service...")
 

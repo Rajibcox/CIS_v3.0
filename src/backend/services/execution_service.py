@@ -13,7 +13,7 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from src.backend.models.database import (
-    Position, Order, OrderStatus, OrderType, OrderSide, Signal
+    Position, Order, OrderStatus, OrderType, Signal
 )
 from src.backend.services.risk_service import RiskService, LeverageDecision
 from src.backend.utils.config import Config

@@ -580,9 +580,8 @@ async def get_indicator(indicator_name: str):
     return indicator
 
 
-@router.post("/validate-rule")
-async def validate_rule(rule: RuleCondition):
-    """Validate a rule condition"""
+def _check_rule(rule: RuleCondition) -> dict:
+    """Validate a rule condition (sync logic, reusable from anywhere)"""
     errors = []
     warnings = []
 
@@ -615,6 +614,12 @@ async def validate_rule(rule: RuleCondition):
     }
 
 
+@router.post("/validate-rule")
+async def validate_rule(rule: RuleCondition):
+    """Validate a rule condition"""
+    return _check_rule(rule)
+
+
 @router.post("/validate-strategy")
 async def validate_strategy(rule_set: StrategyRuleSet):
     """Validate complete strategy rule set"""
@@ -623,7 +628,7 @@ async def validate_strategy(rule_set: StrategyRuleSet):
 
     def validate_group(group: RuleGroup, prefix: str):
         for i, condition in enumerate(group.conditions):
-            result = await validate_rule(condition)
+            result = _check_rule(condition)
             if not result["valid"]:
                 all_errors.extend([f"{prefix}.conditions[{i}]: {e}" for e in result["errors"]])
             all_warnings.extend([f"{prefix}.conditions[{i}]: {w}" for w in result["warnings"]])

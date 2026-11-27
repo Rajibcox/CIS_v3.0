@@ -3,7 +3,7 @@ import { cn } from '../../utils/cn';
 
 interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   defaultValue?: string;
-  onValueChange?: (value: string) => void;
+  onValueChange?: (value: any) => void;
   children: React.ReactNode;
 }
 

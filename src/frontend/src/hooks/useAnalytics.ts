@@ -20,7 +20,7 @@ export function usePnLSummary(
 ) {
   return useQuery({
     queryKey: ['analytics', 'pnl', 'summary', days, params],
-    queryFn: () => api.getPnLSummary(days, params),
+    queryFn: () => api.getAnalyticsPnLSummary(days, params),
     refetchInterval: 30000,
     staleTime: 15000,
   });
@@ -38,7 +38,7 @@ export function usePerformanceMetrics(days: number = 30) {
 export function useEquityCurve(days: number = 30) {
   return useQuery({
     queryKey: ['analytics', 'pnl', 'equity-curve', days],
-    queryFn: () => api.getEquityCurve(days),
+    queryFn: () => api.getAnalyticsEquityCurve(days),
     refetchInterval: 30000,
     staleTime: 15000,
   });
@@ -124,7 +124,7 @@ export function useBacktest() {
       fees_bps?: number;
       slippage_bps?: number;
       funding_rate_pct?: number;
-    }) => api.runBacktest(params),
+    }) => api.runAnalyticsBacktest(params),
   });
 }
 

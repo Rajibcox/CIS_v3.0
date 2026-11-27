@@ -9,7 +9,6 @@ import { Search, Filter, Zap, ExternalLink, Clock, TrendingUp, TrendingDown } fr
 import { cn } from '../utils/cn';
 import type { SignalResponse, SignalDetail } from '../types/api';
 import { formatCurrency } from '../utils/format';
-import { Zap } from 'lucide-react';
 
 export function SignalsPage() {
   const { data: signalsData, isLoading } = useSignals();

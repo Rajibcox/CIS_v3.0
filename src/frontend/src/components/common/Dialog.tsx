@@ -120,5 +120,3 @@ interface DialogDescriptionProps {
 export function DialogDescription({ className, children }: DialogDescriptionProps) {
   return <p className={cn('text-sm text-muted-foreground', className)}>{children}</p>;
 }
-
-export { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription };

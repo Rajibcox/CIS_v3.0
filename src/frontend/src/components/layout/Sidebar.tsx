@@ -11,7 +11,7 @@ import {
   Clock,
   List,
   Settings,
-  Strategy,
+  Layers,
   Brain,
   BarChart3,
   Shield,
@@ -54,7 +54,7 @@ const navigation = [
   },
   {
     name: 'Strategies',
-    icon: Strategy,
+    icon: Layers,
     children: [
       { name: 'Strategy Center', href: '/strategies' },
       { name: 'Visual Builder', href: '/strategies/builder' },

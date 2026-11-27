@@ -133,7 +133,7 @@ export function AnalyticsPage() {
                     <div className="flex items-center justify-center h-full text-muted-foreground">No equity data available</div>
                   )}
                 </div>
-              </CardContent
+              </CardContent>
             </Card>
 
             {/* Monthly Returns */}
@@ -444,7 +444,7 @@ function ExitReasonChart({ data }: any) {
             dataKey="value" nameKey="name"
             label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
           >
-            {entries.map((_, i) => <Cell key={`cell-${i}`} fill={`hsl(var(--chart-${i + 1)})`} />)}
+            {entries.map((_, i) => <Cell key={`cell-${i}`} fill={`hsl(var(--chart-${i + 1}))`} />)}
           </Pie>
           <Tooltip formatter={(value: number) => [value, 'Trades']} />
         </PieChart>
@@ -600,4 +600,3 @@ function createHistogram(data: number[], bins: number) {
 
 // Need to import hooks
 import { useAnalytics } from '../hooks/useAnalytics';
-import { useBacktest, useWalkforward, useMonteCarlo } from '../hooks/useAnalytics';

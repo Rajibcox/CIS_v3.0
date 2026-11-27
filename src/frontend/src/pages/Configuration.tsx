@@ -9,12 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/common/Tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/common/Table';
 import { Badge } from '../components/common/Badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/common/Dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/common/Dialog';
 import { cn } from '../utils/cn';
 import {
   Save, RotateCcw, Download, Upload, AlertTriangle, CheckCircle,
   Server, Shield, Zap, Settings, Database, Bell, MessageSquare,
-  Eye, EyeOff, Key, Lock, Unlock, TestTube, Globe
+  Eye, EyeOff, Key, Lock, Unlock, TestTube, Globe, Info, X
 } from 'lucide-react';
 
 export function ConfigurationPage() {
@@ -34,7 +34,7 @@ export function ConfigurationPage() {
   const [validationResult, setValidationResult] = useState<any>(null);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importData, setImportData] = useState('');
-  const [importPassphrase, setImportPassphrase] = '';
+  const [importPassphrase, setImportPassphrase] = useState('');
 
   // Form states for each section
   const [exchangeForms, setExchangeForms] = useState<Record<string, any>>({});
@@ -555,9 +555,9 @@ function ExchangesTab({ exchanges, forms, onFormChange, onSave, onTest }: any) {
                 </div>
                 <Button
                   onClick={() => onTest.mutate(exch.name.toLowerCase())}
-                  disabled={testExchangeConnection.isPending}
+                  disabled={onTest.isPending}
                 >
-                  <RotateCcw className={cn("h-4 w-4 mr-2", testExchangeConnection.isPending && "animate-spin")} />
+                  <RotateCcw className={cn("h-4 w-4 mr-2", onTest.isPending && "animate-spin")} />
                   Test Connection
                 </Button>
               </div>
@@ -715,7 +715,7 @@ function TelegramTab({ form, onChange, onSave }: any) {
             { key: 'weekly_report', label: 'Weekly Report', type: 'boolean' },
             { key: 'system_error', label: 'System Error', type: 'boolean' },
           ]
-        }}
+        }
       }}
       extraFields={[
         {

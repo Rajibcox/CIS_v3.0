@@ -1,4 +1,4 @@
-﻿"""
+"""
 Strategy Service for QUANTUM TRADER V1
 Manages trading strategies, rule sets, and performance tracking
 """
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 
 from src.backend.models.database import (
-    Strategy, StrategyRule, StrategyRuleSet, Signal, Position
+    Strategy, StrategyRule, Signal, Position
 )
 from src.backend.utils.config import Config
 from src.backend.utils.logger import get_logger
@@ -273,10 +273,10 @@ class StrategyService:
 
         for key, rule_type in rule_sets:
             if key in rule_set and rule_set[key]:
-                rule_set_obj = StrategyRuleSet(
+                rule_set_obj = StrategyRule(
                     strategy_id=strategy.id,
                     rule_type=rule_type,
-                    rules=rule_set[key]
+                    rule_config=rule_set[key]
                 )
                 db.add(rule_set_obj)
 
@@ -339,15 +339,17 @@ class StrategyService:
         db.flush()
 
         # Copy rule sets
-        rule_sets = db.query(StrategyRuleSet).filter(
-            StrategyRuleSet.strategy_id == strategy_id
+        rule_sets = db.query(StrategyRule).filter(
+            StrategyRule.strategy_id == strategy_id
         ).all()
 
         for rs in rule_sets:
-            new_rs = StrategyRuleSet(
+            new_rs = StrategyRule(
                 strategy_id=new_strategy.id,
                 rule_type=rs.rule_type,
-                rules=rs.rules
+                rule_config=rs.rule_config,
+                weight=rs.weight,
+                is_active=rs.is_active
             )
             db.add(new_rs)
 
@@ -360,8 +362,8 @@ class StrategyService:
         if not strategy:
             return None
 
-        rule_sets = db.query(StrategyRuleSet).filter(
-            StrategyRuleSet.strategy_id == strategy_id
+        rule_sets = db.query(StrategyRule).filter(
+            StrategyRule.strategy_id == strategy_id
         ).all()
 
         return {

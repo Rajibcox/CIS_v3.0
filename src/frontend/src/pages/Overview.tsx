@@ -215,7 +215,7 @@ export function OverviewPage() {
                         <TableCell className="text-right font-mono">{pos.entry_price.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono">{pos.current_price.toLocaleString()}</TableCell>
                         <TableCell className="text-right font-mono">{pos.quantity}</TableCell>
-                        <TableCell className="text-right font-mono font-medium" className={getPnlColor(pos.unrealized_pnl)}>
+                        <TableCell className={cn("text-right font-mono font-medium", getPnlColor(pos.unrealized_pnl))}>
                           {formatCurrency(pos.unrealized_pnl)}
                         </TableCell>
                         <TableCell className="text-right font-mono">{pos.leverage}x</TableCell>

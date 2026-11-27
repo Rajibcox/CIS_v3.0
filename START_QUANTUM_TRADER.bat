@@ -10,7 +10,7 @@ cls
 echo ============================================================================
 echo                    QUANTUM TRADER V1 LAUNCHER
 echo ============================================================================
-echo Professional Quantitative Futures Trading & Intelligence Platform
+echo Professional Quantitative Futures Trading ^& Intelligence Platform
 echo ============================================================================
 echo.
 
@@ -38,6 +38,23 @@ if not exist "data\database\quantum.db" if not exist "data\database\quantum_trad
     echo [WARNING] Database not found. Initializing database...
     python src\backend\database\init_db.py
     echo.
+)
+
+:: Build the web dashboard on first run (needs Node.js)
+if not exist "src\frontend\dist\index.html" (
+    where npm >nul 2>nul
+    if errorlevel 1 (
+        echo [WARNING] Node.js not found - the web dashboard cannot be built.
+        echo [WARNING] Install Node.js LTS from https://nodejs.org then run this launcher again.
+        echo.
+    ) else (
+        echo [INFO] Building web dashboard ^(first run only, may take a few minutes^)...
+        pushd src\frontend
+        call npm install --no-audit --no-fund
+        call npm run build
+        popd
+        echo.
+    )
 )
 
 :: Start the application

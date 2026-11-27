@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: '../../dist', // Output to QUANTUM_TRADER_V1/dist
+    outDir: 'dist', // -> src/frontend/dist (where the backend serves it from)
   },
   server: {
     port: 3000, // Frontend dev server port

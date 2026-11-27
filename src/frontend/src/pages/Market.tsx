@@ -81,12 +81,12 @@ export function MarketPage() {
         />
         <MetricCard
           title="24h Volume"
-          value={formatCurrency((overview?.total_volume_24h || 0) / 1e9)} + 'B'
+          value={formatCurrency((overview?.total_volume_24h || 0) / 1e9) + 'B'}
           icon={<Activity className="h-5 w-5 text-blue-400" />}
         />
         <MetricCard
           title="Open Interest"
-          value={formatCurrency((overview?.total_open_interest || 0) / 1e9)} + 'B'
+          value={formatCurrency((overview?.total_open_interest || 0) / 1e9) + 'B'}
           subtitle={`Funding: ${(overview?.funding_rate_avg || 0) * 10000} bps`}
           icon={<AlertTriangle className="h-5 w-5 text-purple-400" />}
         />
@@ -419,4 +419,23 @@ function OpportunityTable({ opportunities }: { opportunities: ScannerResult[] })
 }
 
 // Need to import Badge
-import { Badge } from '../components/common/Badge';
+
+function getDirectionColor(direction?: string): string {
+  const d = (direction || '').toUpperCase();
+  if (d === 'LONG') return 'bg-green-500/10 text-green-500';
+  if (d === 'SHORT') return 'bg-red-500/10 text-red-500';
+  return 'bg-muted text-muted-foreground';
+}
+
+function getRegimeColor(regime?: string): string {
+  switch ((regime || '').toLowerCase()) {
+    case 'trending': return 'bg-blue-500/10 text-blue-500';
+    case 'ranging':
+    case 'sideways': return 'bg-gray-500/10 text-gray-400';
+    case 'volatile': return 'bg-orange-500/10 text-orange-500';
+    case 'breakout': return 'bg-purple-500/10 text-purple-500';
+    case 'reversal': return 'bg-yellow-500/10 text-yellow-500';
+    case 'low_volatility': return 'bg-teal-500/10 text-teal-500';
+    default: return 'bg-muted text-muted-foreground';
+  }
+}

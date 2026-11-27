@@ -8,7 +8,8 @@ from fastapi import APIRouter
 from src.backend.api.routes import overview, market, signals, strategies, trading, config, analytics, system
 
 # Main API router
-api_router = APIRouter(prefix="/api/v1")
+# Each route module already declares its own /api/v1/<name> prefix
+api_router = APIRouter()
 
 # Include all route modules
 api_router.include_router(overview.router)

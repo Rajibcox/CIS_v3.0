@@ -9,7 +9,7 @@ import type {
   MarketOverview, SymbolSnapshot, OpportunityResponse,
   SignalResponse, SignalDetail, SignalStats,
   StrategyResponse, StrategyCreate, StrategyUpdate, StrategyPerformance, StrategyVersion, IndicatorInfo,
-  Position, Order, TPStage, PaperTradeRequest, PaperTradeResponse, TradeHistoryEntry, PaperAccountStatus,
+  Position, Order, OrderType, TPStage, PaperTradeRequest, PaperTradeResponse, TradeHistoryEntry, PaperAccountStatus,
   FullConfig, ExchangeConfig, ExchangeConfigResponse,
   PnLSummary, PerformanceMetrics, MonthlyReturn, BreakdownItem, TPAnalytics, TradeDistribution,
   BacktestResult, WalkForwardResult, MonteCarloResult,
@@ -379,7 +379,7 @@ class ApiClient {
   // Analytics
   // ============================================================================
 
-  async getPnLSummary(days: number = 30, params?: any): Promise<PnLSummary> {
+  async getAnalyticsPnLSummary(days: number = 30, params?: any): Promise<PnLSummary> {
     return this.get<PnLSummary>('/analytics/pnl/summary', { days, ...params });
   }
 
@@ -387,7 +387,7 @@ class ApiClient {
     return this.get<PerformanceMetrics>('/analytics/pnl/metrics', { days });
   }
 
-  async getEquityCurve(days: number = 30): Promise<{ data: EquityCurvePoint[] }> {
+  async getAnalyticsEquityCurve(days: number = 30): Promise<{ data: EquityCurvePoint[] }> {
     return this.get('/analytics/pnl/equity-curve', { days });
   }
 
@@ -424,7 +424,7 @@ class ApiClient {
   }
 
   // Backtesting
-  async runBacktest(params: {
+  async runAnalyticsBacktest(params: {
     strategy_id: number;
     symbols: string[];
     start_date: string;

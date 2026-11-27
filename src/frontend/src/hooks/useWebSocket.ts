@@ -11,7 +11,7 @@ interface WSMessage {
 interface UseWebSocketOptions {
   url?: string;
   onOpen?: () => void;
-  onClose?: () => void;
+  onClose?: (event?: CloseEvent) => void;
   onError?: (error: Event) => void;
   onMessage?: (message: any) => void;
   reconnectInterval?: number;
@@ -37,7 +37,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageHandlersRef = useRef<Map<string, (data: any) => void>>(new Map());
   const requestCallbacksRef = useRef<Map<string, (data: any) => void>>(new Map());
   const requestIdCounter = useRef(0);
@@ -156,10 +156,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     });
   }, []);
 
-  const request = useCallback((message: any): Promise<any> => {
+  const request = useCallback((payload: any): Promise<any> => {
     return new Promise((resolve, reject) => {
       const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const message = { ...message, request_id: message.request_id || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
+      const message = { ...payload, request_id: payload.request_id || requestId };
 
       const timeout = setTimeout(() => {
         requestCallbacksRef.current.delete(message.request_id);
@@ -236,7 +236,7 @@ export function useChannel<T>(channel: string, initialData?: T) {
   useEffect(() => {
     if (!isConnected) return;
 
-    const unsubscribe = subscribe(channel);
+    subscribe(channel);
 
     return () => {
       unsubscribe(channel);
@@ -342,28 +342,6 @@ export function usePnL() {
   }, [isConnected]);
 
   return pnl;
-}
-
-// Hook for real-time signals
-export function useSignals() {
-  const [signals, setSignals] = useState<any[]>([]);
-  const { onChannel, subscribe, unsubscribe, isConnected } = useWebSocket();
-
-  useEffect(() => {
-    if (!isConnected) return;
-
-    const unsubscribeHandler = onChannel('signal', (data: any) => {
-      setSignals(prev => [data, ...prev.slice(0, 49)]);
-    });
-
-    subscribe('signal');
-
-    return () => {
-      unsubscribe('signal');
-    };
-  }, [isConnected]);
-
-  return signals;
 }
 
 // Hook for system status
