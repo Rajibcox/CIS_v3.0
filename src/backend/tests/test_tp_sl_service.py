@@ -216,3 +216,33 @@ async def test_rejected_paper_close_does_not_reduce_position(tp_context):
         assert position.status == PositionStatus.OPEN
     finally:
         await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_long_tp_and_stop_loss_thresholds_are_directionally_correct(tp_context):
+    service, position, *_rest = tp_context
+    await service.initialize()
+    await service.add_position(position)
+    try:
+        manager = service.managers[position.id]
+        assert manager._is_tp_triggered(1, Decimal("51000"), Decimal("51000")) is True
+        assert manager._is_tp_triggered(1, Decimal("51000"), Decimal("50999")) is False
+        assert manager._is_sl_triggered(Decimal("49000")) is True
+        assert manager._is_sl_triggered(Decimal("49001")) is False
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_market_price_crossing_tp_runs_trigger_and_updates_position(tp_context):
+    service, position, _signal, market_data, *_rest = tp_context
+    await service.initialize()
+    await service.add_position(position)
+    try:
+        market_data.price = Decimal("51000")
+        manager = service.managers[position.id]
+        await manager._check_and_update()
+        assert manager.state["tp_orders"][1].status == "filled"
+        assert position.quantity == pytest.approx(0.006)
+    finally:
+        await service.shutdown()
