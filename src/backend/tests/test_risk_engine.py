@@ -54,11 +54,12 @@ class TestRiskEngine:
             max_leverage=3
         )
 
-        # With $100 equity and 1% risk, max loss = $1
-        # Stop distance = $100, so quantity = 0.01
-        # Notional = 0.01 * 50000 = 500 > 5, so should pass
-        # But if equity is too small...
-        pass
+        # A $1 equity with 1% risk and a $100 stop distance
+        # rounds below the exchange lot size and must be rejected.
+        assert result.rejected
+        assert result.quantity == Decimal('0')
+        assert result.notional == Decimal('0')
+        assert "below minimum" in result.rejection_reason
 
     def test_calculate_position_size_rejected_stop_too_wide(self, risk_engine):
         """Test rejection when stop requires too much leverage"""
