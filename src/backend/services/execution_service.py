@@ -103,25 +103,10 @@ class ExchangeExecutor:
         self._symbol_map = {}
 
     async def initialize(self, credentials: Dict):
-        """Initialize exchange connection"""
-        import ccxt.async_support as ccxt
-        exchange_class = getattr(ccxt, self.exchange_name)
-
-        exchange_config = {
-            'apiKey': credentials.get('api_key'),
-            'secret': credentials.get('api_secret'),
-            'password': credentials.get('passphrase'),  # For Bitget
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'future' if self.exchange_name == 'binance' else 'swap',
-                'adjustForTimeDifference': True,
-            }
-        }
-
-        self.exchange = exchange_class(exchange_config)
-        await self.exchange.load_markets()
-        self._build_symbol_map()
-        self.logger.info(f"Initialized {self.exchange_name} executor")
+        """Reject live exchange initialization in the paper-only build."""
+        raise RuntimeError(
+            "Live exchange executors are disabled; only paper execution is permitted"
+        )
 
     def _build_symbol_map(self):
         """Build symbol mapping"""
@@ -134,77 +119,19 @@ class ExchangeExecutor:
         return self._symbol_map.get(internal_symbol)
 
     async def place_order(self, params: OrderParams) -> OrderResult:
-        """Place an order on the exchange"""
-        exchange_symbol = self.get_exchange_symbol(params.symbol)
-        if not exchange_symbol:
-            return OrderResult(
-                order_id="",
-                exchange_order_id="",
-                symbol=params.symbol,
-                exchange=self.exchange_name,
-                status=OrderStatus.REJECTED,
-                filled_quantity=Decimal('0'),
-                average_fill_price=Decimal('0'),
-                fees=Decimal('0'),
-                timestamp=datetime.utcnow(),
-                error=f"Symbol {params.symbol} not found on {self.exchange_name}"
-            )
-
-        try:
-            ccxt_params = {
-                'symbol': exchange_symbol,
-                'type': params.order_type.value,
-                'side': params.side.value,
-                'amount': float(params.quantity),
-            }
-
-            if params.price:
-                ccxt_params['price'] = float(params.price)
-            if params.stop_price:
-                ccxt_params['stopPrice'] = float(params.stop_price)
-            if params.reduce_only:
-                ccxt_params['reduceOnly'] = True
-            if params.position_side:
-                ccxt_params['positionSide'] = params.position_side
-            if params.time_in_force:
-                ccxt_params['timeInForce'] = params.time_in_force
-            if params.client_order_id:
-                ccxt_params['clientOrderId'] = params.client_order_id
-
-            # Add exchange-specific params
-            if self.exchange_name == 'binance':
-                ccxt_params['workingType'] = 'MARK_PRICE'
-            elif self.exchange_name == 'bitget':
-                ccxt_params['triggerType'] = 'mark_price'
-
-            order = await self.exchange.create_order(**ccxt_params)
-
-            return OrderResult(
-                order_id=f"{self.exchange_name}_{order['id']}",
-                exchange_order_id=str(order['id']),
-                symbol=params.symbol,
-                exchange=self.exchange_name,
-                status=OrderStatus.PENDING if order['status'] == 'open' else OrderStatus.FILLED,
-                filled_quantity=Decimal(str(order.get('filled', 0))),
-                average_fill_price=Decimal(str(order.get('average', 0))) if order.get('average') else Decimal('0'),
-                fees=Decimal(str(order.get('fee', {}).get('cost', 0))) if order.get('fee') else Decimal('0'),
-                timestamp=datetime.utcnow()
-            )
-
-        except Exception as e:
-            self.logger.error(f"Order failed: {e}")
-            return OrderResult(
-                order_id="",
-                exchange_order_id="",
-                symbol=params.symbol,
-                exchange=self.exchange_name,
-                status=OrderStatus.REJECTED,
-                filled_quantity=Decimal('0'),
-                average_fill_price=Decimal('0'),
-                fees=Decimal('0'),
-                timestamp=datetime.utcnow(),
-                error=str(e)
-            )
+        """Reject direct live order submission in the paper-only build."""
+        return OrderResult(
+            order_id="",
+            exchange_order_id="",
+            symbol=params.symbol,
+            exchange=self.exchange_name,
+            status=OrderStatus.REJECTED,
+            filled_quantity=Decimal("0"),
+            average_fill_price=Decimal("0"),
+            fees=Decimal("0"),
+            timestamp=datetime.utcnow(),
+            error="Live execution is disabled; only paper execution is permitted",
+        )
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """Cancel an order"""
@@ -461,11 +388,9 @@ class ExecutionService:
         position_id: Optional[int] = None,
     ) -> OrderResult:
         """Place an order through the selected, explicitly permitted executor."""
-        if (
-            self.config.settings.mock_exchange
-            and self.config.settings.paper_trading
-            and mode != "paper"
-        ):
+        # This build is paper-only. Do not let configuration flags or a
+        # manually registered executor enable live order submission.
+        if mode != "paper":
             return OrderResult(
                 order_id="",
                 exchange_order_id="",
@@ -476,45 +401,13 @@ class ExecutionService:
                 average_fill_price=Decimal("0"),
                 fees=Decimal("0"),
                 timestamp=datetime.utcnow(),
-                error="Live execution is disabled while mock exchange and paper trading are enabled",
+                error="Live execution is disabled; only paper execution is permitted",
             )
 
-        if mode == "paper":
-            result = await self.paper_executor.place_order(params)
-            if db is not None and result.status in (OrderStatus.FILLED, OrderStatus.PENDING):
-                self._persist_paper_order(db, params, result, position_id=position_id)
-            return result
-
-        if mode != "live":
-            return OrderResult(
-                order_id="",
-                exchange_order_id="",
-                symbol=params.symbol,
-                exchange=params.exchange,
-                status=OrderStatus.REJECTED,
-                filled_quantity=Decimal("0"),
-                average_fill_price=Decimal("0"),
-                fees=Decimal("0"),
-                timestamp=datetime.utcnow(),
-                error=f"Unsupported execution mode: {mode}",
-            )
-
-        executor = self.executors.get(params.exchange)
-        if not executor:
-            return OrderResult(
-                order_id="",
-                exchange_order_id="",
-                symbol=params.symbol,
-                exchange=params.exchange,
-                status=OrderStatus.REJECTED,
-                filled_quantity=Decimal('0'),
-                average_fill_price=Decimal('0'),
-                fees=Decimal('0'),
-                timestamp=datetime.utcnow(),
-                error=f"Exchange {params.exchange} not connected"
-            )
-
-        return await executor.place_order(params)
+        result = await self.paper_executor.place_order(params)
+        if db is not None and result.status in (OrderStatus.FILLED, OrderStatus.PENDING):
+            self._persist_paper_order(db, params, result, position_id=position_id)
+        return result
 
     @staticmethod
     def _persist_paper_order(

@@ -193,3 +193,87 @@ async def test_missing_market_data_rejects_order_safely(config):
     assert result.status == DBOrderStatus.REJECTED
     assert result.order_id == ""
     assert service.paper_executor.orders == {}
+
+
+@pytest.mark.parametrize(
+    ("mock_exchange", "paper_trading"),
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+@pytest.mark.asyncio
+async def test_live_orders_are_rejected_for_every_configuration(
+    config, mock_exchange, paper_trading
+):
+    config.settings.mock_exchange = mock_exchange
+    config.settings.paper_trading = paper_trading
+    market_data = FakeMarketData()
+    service = ExecutionService(
+        config, risk_service=object(), market_data_service=market_data
+    )
+    forbidden = ForbiddenLiveExecutor()
+    service.executors["binance"] = forbidden
+
+    result = await service.place_order(market_order(), mode="live")
+
+    assert result.status == DBOrderStatus.REJECTED
+    assert result.filled_quantity == Decimal("0")
+    assert forbidden.called is False
+    assert market_data.calls == []
+
+
+@pytest.mark.parametrize(
+    ("mock_exchange", "paper_trading"),
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+@pytest.mark.asyncio
+async def test_paper_orders_remain_available_for_every_configuration(
+    config, mock_exchange, paper_trading
+):
+    config.settings.mock_exchange = mock_exchange
+    config.settings.paper_trading = paper_trading
+    market_data = FakeMarketData()
+    service = ExecutionService(
+        config, risk_service=object(), market_data_service=market_data
+    )
+
+    result = await service.place_order(market_order(), mode="paper")
+
+    assert result.status == DBOrderStatus.FILLED
+    assert result.filled_quantity == Decimal("0.01")
+    assert result.exchange == "paper"
+    assert market_data.calls == [("BTCUSDT", "binance")]
+
+
+@pytest.mark.asyncio
+async def test_direct_exchange_executor_initialization_is_disabled(config):
+    from src.backend.services.execution_service import ExchangeExecutor
+
+    executor = ExchangeExecutor("binance", config)
+
+    with pytest.raises(RuntimeError, match="Live exchange executors are disabled"):
+        await executor.initialize({"api_key": "must-not-be-used", "api_secret": "must-not-be-used"})
+
+    assert executor.exchange is None
+
+
+@pytest.mark.asyncio
+async def test_direct_exchange_executor_order_submission_is_rejected(config):
+    from src.backend.services.execution_service import ExchangeExecutor
+
+    class ForbiddenCCXTExchange:
+        def __init__(self):
+            self.create_order_called = False
+
+        async def create_order(self, **kwargs):
+            self.create_order_called = True
+            raise AssertionError("CCXT create_order must never be called")
+
+    executor = ExchangeExecutor("binance", config)
+    fake_exchange = ForbiddenCCXTExchange()
+    executor.exchange = fake_exchange
+    executor._symbol_map["BTCUSDT"] = "BTC/USDT"
+
+    result = await executor.place_order(market_order())
+
+    assert result.status == DBOrderStatus.REJECTED
+    assert result.filled_quantity == Decimal("0")
+    assert fake_exchange.create_order_called is False
