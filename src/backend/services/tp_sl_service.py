@@ -414,11 +414,13 @@ class TPSLService:
     """Coordinates TP/SL managers for open positions."""
 
     def __init__(self, config: Config, execution_service: ExecutionService,
-                 market_data_service: MarketDataService, risk_service: RiskService):
+                 market_data_service: MarketDataService, risk_service: RiskService,
+                 session_factory: Any = None):
         self.config = config
         self.execution_service = execution_service
         self.market_data_service = market_data_service
         self.risk_service = risk_service
+        self.session_factory = session_factory
         self.logger = logging.getLogger(__name__)
         self.managers: Dict[int, TPSLManager] = {}
         self._running = False
