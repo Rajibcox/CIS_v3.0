@@ -16,20 +16,20 @@ def test_mock_trading_fixtures_are_removed(name):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "call",
+    "invoke",
     [
-        trading.get_paper_status(),
-        trading.get_positions(),
-        trading.get_position(123),
-        trading.get_position_tp_sl(123),
-        trading.get_orders(),
-        trading.get_trade_history(),
-        trading.get_pnl_summary(),
+        lambda: trading.get_paper_status(),
+        lambda: trading.get_positions(),
+        lambda: trading.get_position(123),
+        lambda: trading.get_position_tp_sl(123),
+        lambda: trading.get_orders(),
+        lambda: trading.get_trade_history(),
+        lambda: trading.get_pnl_summary(),
     ],
 )
-async def test_trading_reads_fail_closed_without_persisted_read_model(call):
+async def test_trading_reads_fail_closed_without_persisted_read_model(invoke):
     with pytest.raises(HTTPException) as exc:
-        await call
+        await invoke()
 
     assert exc.value.status_code == 503
     assert "No simulated data is returned" in exc.value.detail
@@ -37,9 +37,9 @@ async def test_trading_reads_fail_closed_without_persisted_read_model(call):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "call",
+    "invoke",
     [
-        trading.place_paper_trade(
+        lambda: trading.place_paper_trade(
             trading.PaperTradeRequest(
                 symbol="BTCUSDT",
                 exchange="binance",
@@ -50,18 +50,18 @@ async def test_trading_reads_fail_closed_without_persisted_read_model(call):
                 tp3=130,
             )
         ),
-        trading.close_position(
+        lambda: trading.close_position(
             123, trading.ClosePositionRequest(position_id=123)
         ),
-        trading.cancel_order(123),
-        trading.pause_paper_trading(),
-        trading.resume_paper_trading(),
-        trading.reset_paper_trading(),
+        lambda: trading.cancel_order(123),
+        lambda: trading.pause_paper_trading(),
+        lambda: trading.resume_paper_trading(),
+        lambda: trading.reset_paper_trading(),
     ],
 )
-async def test_trading_mutations_never_claim_success_without_execution_wiring(call):
+async def test_trading_mutations_never_claim_success_without_execution_wiring(invoke):
     with pytest.raises(HTTPException) as exc:
-        await call
+        await invoke()
 
     assert exc.value.status_code == 409
     assert "No order or state change occurred" in exc.value.detail
