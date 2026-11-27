@@ -138,9 +138,9 @@ class TestPortfolioRiskManager:
         risk_engine = RiskEngine(config)
         return PortfolioRiskManager(config, risk_engine)
 
-    def test_get_portfolio_risk_metrics(self, portfolio_manager):
-        """Test portfolio risk metrics calculation"""
-        metrics = portfolio_manager.get_portfolio_risk_metrics(None, Decimal('10000'))
+    def test_get_portfolio_risk_metrics(self, portfolio_manager, db_session):
+        """Test portfolio risk metrics calculation with a valid database session."""
+        metrics = portfolio_manager.get_portfolio_risk_metrics(db_session, Decimal('10000'))
 
         assert 'equity' in metrics
         assert 'available_margin' in metrics
