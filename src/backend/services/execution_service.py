@@ -406,7 +406,15 @@ class ExecutionService:
 
         result = await self.paper_executor.place_order(params)
         if db is not None and result.status in (OrderStatus.FILLED, OrderStatus.PENDING):
-            self._persist_paper_order(db, params, result, position_id=position_id)
+            try:
+                self._persist_paper_order(db, params, result, position_id=position_id)
+            except Exception:
+                # The caller owns the database rollback. Remove the ephemeral
+                # simulation record so a failed persistence attempt cannot be
+                # observed as a valid paper order in this process.
+                if result.order_id:
+                    self.paper_executor.orders.pop(result.order_id, None)
+                raise
         return result
 
     @staticmethod
