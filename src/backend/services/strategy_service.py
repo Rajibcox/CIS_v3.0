@@ -266,16 +266,37 @@ class StrategyEngine:
 class StrategyService:
     """Main strategy management service"""
 
-    def __init__(self, config: Config, market_data_service: Any = None):
+    def __init__(
+        self,
+        config: Config,
+        market_data_service: Any = None,
+        session_factory: Any = None,
+    ):
         self.config = config
         self.market_data_service = market_data_service
+        self.session_factory = session_factory
         self.engine = StrategyEngine(config)
         self.logger = logging.getLogger(__name__)
         self._running = False
 
     async def initialize(self):
-        """Initialize strategy service"""
+        """Load persisted active strategies before the service becomes ready."""
         self.logger.info("Initializing Strategy Service...")
+        if self.session_factory is not None:
+            session = self.session_factory()
+            try:
+                loaded = self.engine.load_active_strategies(session)
+            except Exception:
+                session.rollback()
+                self.logger.exception("Failed to load active strategies during startup")
+                raise
+            finally:
+                session.close()
+            self.logger.info("Loaded %s active strategies from persistence", loaded)
+        else:
+            self.logger.warning(
+                "No database session factory configured; strategy cache remains empty"
+            )
         self._running = True
         self.logger.info("Strategy Service initialized")
 

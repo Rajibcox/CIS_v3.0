@@ -61,7 +61,9 @@ class ServiceContainer:
         )
         await self.market_scanner.start()
 
-        self.strategy_service = StrategyService(self.config, self.market_data)
+        self.strategy_service = StrategyService(
+            self.config, self.market_data, session_factory=self.session_factory
+        )
         await self.strategy_service.initialize()
 
         self.risk_service = RiskService(self.config)

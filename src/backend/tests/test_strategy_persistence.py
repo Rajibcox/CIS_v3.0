@@ -116,3 +116,51 @@ def test_non_one_hour_rule_does_not_reuse_hourly_scanner_value(db_session):
     engine = StrategyEngine(config=None)
     group = _group(conditions=[_rsi("<", 30)])
     assert engine._group_matches(group, {"rsi": 20.0}, "15m") is False
+
+
+
+def test_initialize_loads_active_strategies_from_database_and_closes_session(db_session):
+    service = StrategyService(config=None, session_factory=lambda: db_session)
+    strategy = Strategy(
+        name="Startup loaded",
+        version="1.0.0",
+        is_active=True,
+    )
+    db_session.add(strategy)
+    db_session.flush()
+    db_session.add(StrategyRule(
+        strategy_id=strategy.id,
+        rule_type="entry",
+        rule_config=_group(conditions=[_rsi("<", 30)]),
+        is_active=True,
+    ))
+    db_session.commit()
+
+    closed = []
+    original_close = db_session.close
+
+    def tracked_close():
+        closed.append(True)
+        # Keep the fixture-owned session usable for assertions after initialization.
+        # SQLAlchemy close is safe here; the fixture closes it again at teardown.
+        original_close()
+
+    db_session.close = tracked_close
+
+    asyncio.run(service.initialize())
+
+    assert service._running is True
+    assert strategy.id in service.engine._strategy_cache
+    assert len(service.engine._rule_cache[strategy.id]) == 1
+    assert closed == [True]
+    assert service.engine.evaluate_entry(
+        strategy.id, {"rsi": 25.0}, "1h", "LONG"
+    )[0] is True
+
+
+def test_initialize_without_session_factory_keeps_cache_empty():
+    service = StrategyService(config=None)
+    asyncio.run(service.initialize())
+    assert service._running is True
+    assert service.engine._strategy_cache == {}
+    assert service.engine._rule_cache == {}
