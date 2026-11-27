@@ -363,11 +363,13 @@ class ExecutionService:
         self,
         config: Config,
         risk_service: "RiskService",
-        market_data_service: Any
+        market_data_service: Any,
+        session_factory: Any = None,
     ):
         self.config = config
         self.risk_service = risk_service
         self.market_data_service = market_data_service
+        self.session_factory = session_factory
         self.logger = logging.getLogger(__name__)
 
         self.executors: Dict[str, ExchangeExecutor] = {}
