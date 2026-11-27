@@ -79,8 +79,8 @@ def verify_token(
         if (
             not isinstance(username, str)
             or not isinstance(subject, str)
-            or not hmac.compare_digest(username, settings.admin_username)
-            or not hmac.compare_digest(subject, settings.admin_username)
+            or not hmac.compare_digest(username.encode('utf-8'), settings.admin_username.encode('utf-8'))
+            or not hmac.compare_digest(subject.encode('utf-8'), settings.admin_username.encode('utf-8'))
             or role != "admin"
             or payload.get("token_type") != "access"
         ):
@@ -112,7 +112,9 @@ class LoginResponse(BaseModel):
 async def login(payload: LoginRequest, request: Request) -> LoginResponse:
     """Authenticate the single provisioned local administrator."""
     settings = request.app.state.config.settings
-    username_matches = hmac.compare_digest(payload.username, settings.admin_username)
+    username_matches = hmac.compare_digest(
+        payload.username.encode('utf-8'), settings.admin_username.encode('utf-8')
+    )
 
     try:
         password_matches = _password_hasher.verify(
