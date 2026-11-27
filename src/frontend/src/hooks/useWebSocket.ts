@@ -48,12 +48,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     }
 
     try {
-      const ws = new WebSocket('ws://localhost:8000/ws');
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        setConnectionError('Authentication required');
+        return;
+      }
+
+      const ws = new WebSocket(url, ['quantum-trader', 'bearer.' + token]);
       wsRef.current = ws;
 
       ws.onopen = () => {
         setIsConnected(true);
         setConnectionError(null);
+        reconnectAttemptsRef.current = 0;
         console.log('WebSocket connected');
 
         // Subscribe to default channels
@@ -74,11 +81,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         if (onClose) onClose(event);
 
         // Attempt reconnection
-        if (reconnectAttemptsRef.current < 10) {
-          setTimeout(() => {
+        if (event.code !== 4401 && reconnectAttemptsRef.current < maxReconnectAttempts) {
+          reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current++;
             connect();
-          }, 5000);
+          }, reconnectInterval);
+        } else if (event.code === 4401) {
+          setConnectionError('WebSocket authentication failed. Please sign in again.');
         }
       };
 

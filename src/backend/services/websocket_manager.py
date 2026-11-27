@@ -102,7 +102,9 @@ class ConnectionManager:
         if client_id is None:
             client_id = str(uuid.uuid4())[:8]
 
-        await websocket.accept()
+        offered_protocols = websocket.scope.get("subprotocols", [])
+        negotiated_protocol = "quantum-trader" if "quantum-trader" in offered_protocols else None
+        await websocket.accept(subprotocol=negotiated_protocol)
 
         self.active_connections[client_id] = websocket
         self.client_info[client_id] = {

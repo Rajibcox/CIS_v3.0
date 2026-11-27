@@ -13,10 +13,11 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 import uvicorn
-from fastapi import WebSocket
+from fastapi import WebSocket, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.backend.api.server import create_app
+from src.backend.api.auth import decode_access_token
 from src.backend.services import get_service_container
 from src.backend.utils.config import Config
 
@@ -31,6 +32,22 @@ def create_app_with_services():
     # CORS is also configured by create_app. Keep one authoritative policy there.
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
+        # Browser WebSocket clients cannot set Authorization headers. The
+        # frontend sends the short-lived JWT as a bearer.<token> subprotocol.
+        # Only the fixed "quantum-trader" protocol is negotiated back.
+        offered_protocols = websocket.scope.get("subprotocols", [])
+        token_protocols = [value for value in offered_protocols if value.startswith("bearer.")]
+        if len(token_protocols) != 1:
+            await websocket.close(code=4401, reason="Authentication required")
+            return
+
+        token = token_protocols[0][len("bearer."):]
+        try:
+            decode_access_token(token, config.settings)
+        except HTTPException:
+            await websocket.close(code=4401, reason="Invalid or expired token")
+            return
+
         container = get_service_container()
         if container and container.websocket_manager:
             await container.websocket_manager.handle_websocket(websocket)

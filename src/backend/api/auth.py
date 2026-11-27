@@ -52,23 +52,16 @@ def validate_auth_settings(settings: Any) -> None:
         raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be between 1 and 1440.")
 
 
-def verify_token(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-) -> dict[str, str]:
-    """Validate a signed, unexpired access token for protected REST routes."""
+def decode_access_token(token: str, settings: Any) -> dict[str, str]:
+    """Validate a signed, unexpired administrator access token."""
     unauthorized = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise unauthorized
-
-    settings = request.app.state.config.settings
     try:
         payload = jwt.decode(
-            credentials.credentials,
+            token,
             settings.secret_key,
             algorithms=["HS256"],
             options={"require_exp": True, "require_iat": True, "require_sub": True},
@@ -79,8 +72,8 @@ def verify_token(
         if (
             not isinstance(username, str)
             or not isinstance(subject, str)
-            or not hmac.compare_digest(username.encode('utf-8'), settings.admin_username.encode('utf-8'))
-            or not hmac.compare_digest(subject.encode('utf-8'), settings.admin_username.encode('utf-8'))
+            or not hmac.compare_digest(username.encode("utf-8"), settings.admin_username.encode("utf-8"))
+            or not hmac.compare_digest(subject.encode("utf-8"), settings.admin_username.encode("utf-8"))
             or role != "admin"
             or payload.get("token_type") != "access"
         ):
@@ -88,6 +81,20 @@ def verify_token(
         return {"user_id": subject, "username": username, "role": role}
     except (JWTError, TypeError, ValueError):
         raise unauthorized
+
+
+def verify_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+) -> dict[str, str]:
+    """Validate a signed, unexpired access token for protected REST routes."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return decode_access_token(credentials.credentials, request.app.state.config.settings)
 
 
 class LoginRequest(BaseModel):
