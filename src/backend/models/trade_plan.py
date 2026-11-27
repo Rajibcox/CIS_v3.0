@@ -4,7 +4,7 @@ These models define and validate persisted configuration only. They do not
 implement price calculations, qualify signals, or authorize order execution.
 """
 from math import isclose, isfinite
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -43,6 +43,34 @@ class TradePlanAllocation(TradePlanModel):
         return self
 
 
+
+class SwingStructureStopLossParameters(TradePlanModel):
+    """Strategy-owned parameters for confirmed swing-structure stops."""
+
+    lookback_candles: int = Field(..., ge=2, le=500)
+    buffer_mode: Literal["none", "atr"] = "none"
+    atr_period: Optional[int] = Field(default=None, ge=2, le=200)
+    atr_multiplier: Optional[float] = Field(default=None, gt=0.0, le=10.0)
+
+    @model_validator(mode="after")
+    def validate_buffer_parameters(self):
+        if self.buffer_mode == "none":
+            if self.atr_period is not None or self.atr_multiplier is not None:
+                raise ValueError("ATR parameters must be omitted when buffer_mode is 'none'")
+        elif self.atr_period is None or self.atr_multiplier is None:
+            raise ValueError("ATR buffer requires both atr_period and atr_multiplier")
+        if self.atr_multiplier is not None and not isfinite(self.atr_multiplier):
+            raise ValueError("atr_multiplier must be finite")
+        return self
+
+
+class TradePlanStopLoss(TradePlanModel):
+    """Only the implemented, validated initial stop method is accepted."""
+
+    method: Literal["swing_structure"]
+    parameters: SwingStructureStopLossParameters
+
+
 class TradePlanTakeProfit(TradePlanModel):
     targets: Dict[str, TradePlanMethod]
     allocation: TradePlanAllocation = Field(default_factory=TradePlanAllocation)
@@ -60,6 +88,6 @@ class TradePlanConfig(TradePlanModel):
 
     schema_version: Literal[1]
     entry: Literal["strategy_rule_match"] = "strategy_rule_match"
-    stop_loss: TradePlanMethod
+    stop_loss: TradePlanStopLoss
     take_profit: TradePlanTakeProfit
     runner: TradePlanMethod

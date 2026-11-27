@@ -74,7 +74,7 @@ def _trade_plan():
     return {
                 "schema_version": 1,
                 "entry": "strategy_rule_match",
-                "stop_loss": {"method": "strategy_defined_sl", "parameters": {"source": "configured_rule"}},
+                "stop_loss": {"method": "swing_structure", "parameters": {"lookback_candles": 20, "buffer_mode": "none"}},
                 "take_profit": {
                     "targets": {
                         "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
