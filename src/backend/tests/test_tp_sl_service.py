@@ -137,7 +137,6 @@ async def test_tp_trigger_executes_paper_close_and_updates_position_and_database
         assert position.realized_pnl > 0
         stage = db.query(TP_SL_Stage).filter_by(position_id=position.id, stage_number=1).one()
         assert stage.status == TPStageStatus.FILLED
-        assert stage.stage_type == TPStageType.SL
         assert stage.stage_type == TPStageType.TP
         order = db.query(Order).filter_by(position_id=position.id).one()
         assert order.status.value == "filled"
@@ -180,6 +179,7 @@ async def test_stop_loss_trigger_closes_remaining_position_and_persists_order(tp
         assert position.close_time is not None
         stage = db.query(TP_SL_Stage).filter_by(position_id=position.id, stage_number=0).one()
         assert stage.status == TPStageStatus.FILLED
+        assert stage.stage_type == TPStageType.SL
         assert db.query(Order).filter_by(position_id=position.id).count() == 1
     finally:
         await service.shutdown()
