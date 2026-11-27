@@ -44,7 +44,7 @@ class TestRiskEngine:
         result = risk_engine.calculate_position_size(
             entry_price=Decimal('50000'),
             stop_loss=Decimal('49900'),  # Very tight stop
-            equity=Decimal('100'),
+            equity=Decimal('1'),
             risk_per_trade=Decimal('0.01'),
             exchange_info={
                 'lot_size': Decimal('0.001'),
