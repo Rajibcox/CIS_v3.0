@@ -577,13 +577,20 @@ class SignalService:
         }
 
     async def execute_paper_trade(self, db: Session, signal_id: int) -> Dict:
-        """Execute a paper trade from a signal"""
-        signal = db.query(Signal).filter(Signal.id == signal_id).first()
-        if not signal:
-            return {"success": False, "error": "Signal not found"}
+        """Fail closed until qualified signals are connected to persisted paper execution.
 
-        # This would call execution service
-        return {"success": True, "position_id": 123}
+        The signal pipeline does not yet create complete, qualified trade plans or
+        coordinate execution, position persistence, TP/SL state, and PnL. Do not
+        report a successful execution or fabricate a position identifier.
+        """
+        return {
+            "success": False,
+            "error": "paper_execution_unavailable",
+            "message": (
+                "Paper execution from signals is disabled until qualified trade "
+                "plans and the complete paper-execution persistence workflow are wired."
+            ),
+        }
 
     async def shutdown(self):
         """Stop the signal generation loop and wait for it to finish."""
