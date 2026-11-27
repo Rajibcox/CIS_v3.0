@@ -111,7 +111,7 @@ async def test_initial_stop_loss_and_take_profit_targets_are_persisted(tp_contex
 
 @pytest.mark.asyncio
 async def test_tp_trigger_executes_paper_close_and_updates_position_and_database(tp_context):
-    service, position, *_rest, db = tp_context
+    service, position, _signal, market_data, _forbidden, db = tp_context
     await service.initialize()
     await service.add_position(position)
     try:
