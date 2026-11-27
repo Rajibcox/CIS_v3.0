@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
-import type { DashboardOverview, PositionSummary, EquityCurvePoint } from '../types/api';
+import type { DashboardOverview, PositionSummary, EquityCurvePoint, OrderType } from '../types/api';
 
 // ============================================================================
 // Overview Hooks
@@ -55,7 +55,7 @@ export function useClosePosition() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ positionId, quantity, orderType }: { positionId: number; quantity?: number; orderType?: string }) =>
+    mutationFn: ({ positionId, quantity, orderType }: { positionId: number; quantity?: number; orderType?: OrderType }) =>
       api.closePosition(positionId, quantity, orderType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['positions'] });
