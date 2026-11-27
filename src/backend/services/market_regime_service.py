@@ -169,7 +169,10 @@ class RegimeDetector:
                 [float(c.close) for c in candles_1h[i-14:i]],
                 14
             )
-            atr_history.append(atr_val / candles_1h[i].close * 100)
+            # CandleData.close is Decimal while ATR is a float. Keep indicator math
+            # consistently in float space to avoid float/Decimal TypeError.
+            previous_close = float(candles_1h[i].close)
+            atr_history.append(atr_val / previous_close * 100 if previous_close > 0 else 0.0)
 
         vol_percentile = self._percentile(atr_pct, atr_history) if atr_history else 50
 
