@@ -93,7 +93,6 @@ async def test_entry_persistence_is_one_linked_order_inside_caller_transaction(
     db_session.rollback()
     assert db_session.query(Position).count() == 0
     assert db_session.query(Order).count() == 0
-    assert service.paper_executor.orders == {}
 
 
 @pytest.mark.asyncio
@@ -140,3 +139,4 @@ async def test_entry_persistence_failure_propagates_for_caller_rollback(
     db_session.rollback()
     assert db_session.query(Position).count() == 0
     assert db_session.query(Order).count() == 0
+    assert service.paper_executor.orders == {}
