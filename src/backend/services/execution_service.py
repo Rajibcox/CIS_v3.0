@@ -458,7 +458,11 @@ class ExecutionService:
         mode: str = "paper",
         db: Optional[Session] = None,
     ) -> OrderResult:
-        """Place entry order from signal"""
+        """Simulate an entry and stage its rows in the caller-owned transaction.
+
+        This method only flushes. The caller must commit on success and roll
+        back if this method raises or if the surrounding unit of work fails.
+        """
         # Determine side
         if signal.direction == "LONG":
             side = OrderSide.BUY
