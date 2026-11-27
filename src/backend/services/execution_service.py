@@ -245,12 +245,9 @@ class PaperExecutor:
         self.order_counter = 0
 
     async def place_order(self, params: OrderParams) -> OrderResult:
-        """Simulate order placement"""
-        self.order_counter += 1
-        order_id = f"paper_{self.order_counter}"
-
-        # Get current market price
-        ticker = await self.market_data.get_ticker(params.symbol)
+        """Simulate an order without sending anything to an exchange."""
+        timestamp = datetime.utcnow()
+        ticker = await self.market_data.get_ticker(params.symbol, params.exchange)
         if not ticker:
             return OrderResult(
                 order_id="",
@@ -258,62 +255,145 @@ class PaperExecutor:
                 symbol=params.symbol,
                 exchange="paper",
                 status=OrderStatus.REJECTED,
-                filled_quantity=Decimal('0'),
-                average_fill_price=Decimal('0'),
-                fees=Decimal('0'),
-                timestamp=datetime.utcnow(),
-                error="No market data available"
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=timestamp,
+                error="No market data available",
             )
 
-        # Simulate fill
-        fill_price = float(ticker.price)
+        raw_price = ticker.get("price") if isinstance(ticker, dict) else getattr(ticker, "price", None)
+        if raw_price is None:
+            return OrderResult(
+                order_id="",
+                exchange_order_id="",
+                symbol=params.symbol,
+                exchange="paper",
+                status=OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=timestamp,
+                error="Market data did not contain a price",
+            )
+
+        market_price = Decimal(str(raw_price))
+        if market_price <= 0 or params.quantity <= 0:
+            return OrderResult(
+                order_id="",
+                exchange_order_id="",
+                symbol=params.symbol,
+                exchange="paper",
+                status=OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=timestamp,
+                error="Order price and quantity must be positive",
+            )
+
+        should_fill = params.order_type == OrderType.MARKET
         if params.order_type == OrderType.LIMIT:
-            if params.side == OrderSide.BUY and params.price > params.price:
-                return OrderResult(
-                    order_id=f"paper_{len(self.orders)+1}",
-                    exchange_order_id="",
-                    symbol=params.symbol,
-                    exchange="paper",
-                    status=OrderStatus.PENDING,
-                    filled_quantity=Decimal('0'),
-                    average_fill_price=Decimal('0'),
-                    fees=Decimal('0'),
-                    timestamp=datetime.utcnow()
+            if params.price is None or params.price <= 0:
+                error = "A positive limit price is required"
+                should_fill = False
+            else:
+                should_fill = (
+                    market_price <= params.price
+                    if params.side == OrderSide.BUY
+                    else market_price >= params.price
                 )
-            elif params.side == OrderSide.SELL and params.price < params.price:
-                return OrderResult(
-                    order_id=f"paper_{len(self.orders)+1}",
-                    exchange_order_id="",
-                    symbol=params.symbol,
-                    exchange="paper",
-                    status=OrderStatus.PENDING,
-                    filled_quantity=Decimal('0'),
-                    average_fill_price=Decimal('0'),
-                    fees=Decimal('0'),
-                    timestamp=datetime.utcnow()
+                error = None
+        elif params.order_type in (OrderType.STOP_MARKET, OrderType.STOP_LIMIT):
+            if params.stop_price is None or params.stop_price <= 0:
+                error = "A positive stop price is required"
+                should_fill = False
+            else:
+                should_fill = (
+                    market_price >= params.stop_price
+                    if params.side == OrderSide.BUY
+                    else market_price <= params.stop_price
                 )
-
-        # Apply slippage
-        slippage = float(self.config.settings.paper_slippage)
-        if params.side == OrderSide.BUY:
-            fill_price *= (1 + slippage)
+                error = None
+        elif params.order_type in (
+            OrderType.TAKE_PROFIT_MARKET,
+            OrderType.TAKE_PROFIT_LIMIT,
+        ):
+            if params.stop_price is None or params.stop_price <= 0:
+                error = "A positive take-profit trigger price is required"
+                should_fill = False
+            else:
+                should_fill = (
+                    market_price <= params.stop_price
+                    if params.side == OrderSide.BUY
+                    else market_price >= params.stop_price
+                )
+                error = None
+        elif params.order_type != OrderType.MARKET:
+            error = f"Unsupported paper order type: {params.order_type.value}"
+            should_fill = False
         else:
-            fill_price *= (1 - slippage)
+            error = None
 
-        # Apply fees
-        fees = fill_price * params.quantity * Decimal(str(self.config.settings.paper_fees))
+        self.order_counter += 1
+        order_id = f"paper_{self.order_counter}"
 
-        order_id = f"paper_{len(self.orders)+1}"
+        if not should_fill:
+            # Keep untriggered limit/conditional orders pending; never report them
+            # as filled merely because the paper executor received the request.
+            self.orders[order_id] = {
+                "id": order_id,
+                "symbol": params.symbol,
+                "exchange": params.exchange,
+                "side": params.side.value,
+                "type": params.order_type.value,
+                "quantity": params.quantity,
+                "filled_quantity": Decimal("0"),
+                "price": params.price,
+                "stop_price": params.stop_price,
+                "status": OrderStatus.PENDING if error is None else OrderStatus.REJECTED,
+                "fees": Decimal("0"),
+                "timestamp": timestamp,
+                "error": error,
+            }
+            return OrderResult(
+                order_id=order_id,
+                exchange_order_id=order_id,
+                symbol=params.symbol,
+                exchange="paper",
+                status=OrderStatus.PENDING if error is None else OrderStatus.REJECTED,
+                filled_quantity=Decimal("0"),
+                average_fill_price=Decimal("0"),
+                fees=Decimal("0"),
+                timestamp=timestamp,
+                error=error,
+            )
+
+        slippage = Decimal(str(self.config.settings.paper_slippage))
+        fill_price = market_price * (
+            Decimal("1") + slippage
+            if params.side == OrderSide.BUY
+            else Decimal("1") - slippage
+        )
+        fees = (
+            fill_price
+            * params.quantity
+            * Decimal(str(self.config.settings.paper_fees))
+        )
+
         self.orders[order_id] = {
-            'id': order_id,
-            'symbol': params.symbol,
-            'side': params.side.value,
-            'quantity': params.quantity,
-            'filled_quantity': params.quantity,
-            'price': Decimal(str(fill_price)),
-            'fees': fees,
-            'status': OrderStatus.FILLED,
-            'timestamp': datetime.utcnow()
+            "id": order_id,
+            "symbol": params.symbol,
+            "exchange": params.exchange,
+            "side": params.side.value,
+            "type": params.order_type.value,
+            "quantity": params.quantity,
+            "filled_quantity": params.quantity,
+            "price": fill_price,
+            "fees": fees,
+            "status": OrderStatus.FILLED,
+            "timestamp": timestamp,
+            "error": None,
         }
 
         return OrderResult(
@@ -323,9 +403,9 @@ class PaperExecutor:
             exchange="paper",
             status=OrderStatus.FILLED,
             filled_quantity=params.quantity,
-            average_fill_price=Decimal(str(fill_price)),
+            average_fill_price=fill_price,
             fees=fees,
-            timestamp=datetime.utcnow()
+            timestamp=timestamp,
         )
 
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
@@ -362,9 +442,7 @@ class ExecutionService:
         """Initialize execution service"""
         self.logger.info("Initializing Execution Service...")
 
-        # Initialize paper executor
-        await self.paper_executor.__init__(self.config, self.market_data_service)
-
+        # PaperExecutor is fully initialized by __init__; never await __init__.
         # Initialize live executors (when credentials available)
         self._running = True
         self.logger.info("Execution Service initialized")
