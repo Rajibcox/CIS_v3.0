@@ -526,7 +526,9 @@ class MarketScanner:
                         price=snapshot.ticker.price,
                         change_24h_pct=snapshot.ticker.change_24h_pct,
                         volume_24h=snapshot.ticker.volume_24h,
-                        volume_change_24h_pct=snapshot.ticker.volume_change_24h_pct,
+                        # TickerData does not currently provide 24h volume change.
+                        # Keep the result contract numeric until a real source is added.
+                        volume_change_24h_pct=0.0,
                         spread_bps=snapshot.ticker.spread_bps,
                         atr_pct=snapshot.indicators.get('atr_pct', 0),
                         adx=snapshot.indicators.get('adx', 0),
