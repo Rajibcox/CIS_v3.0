@@ -11,7 +11,7 @@ import type { SignalResponse, SignalDetail } from '../types/api';
 import { formatCurrency } from '../utils/format';
 
 export function SignalsPage() {
-  const { data: signalsData, isLoading } = useSignals();
+  const { data: signalsData, isLoading, isError } = useSignals();
   const { data: activeSignals } = useActiveSignals();
   const { data: bestSignals } = useBestSignals(10);
   const executePaperTrade = useExecutePaperTrade();
@@ -40,6 +40,19 @@ export function SignalsPage() {
 
   if (isLoading) {
     return <div className="flex items-center justify-center h-64"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>;
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <h2 className="text-lg font-semibold">Signal data unavailable</h2>
+        <p className="text-sm text-muted-foreground mt-2 max-w-xl">
+          Persisted signal records and performance statistics are not available yet.
+          Strategy-rule matches are not actionable signals, so no sample trades or
+          fabricated signal values are shown.
+        </p>
+      </div>
+    );
   }
 
   const handlePaperTrade = async (signal: SignalResponse) => {
