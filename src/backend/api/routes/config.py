@@ -478,8 +478,8 @@ async def validate_config():
     if abs(total - 1.0) > 0.001:
         errors.append(f"TP allocation sums to {total}, must be 1.0")
 
-    # Exchange validation
-    for name, exch in MOCK_CONFIG.exchanges.items():
+    # Exchange credentials are intentionally unsupported in paper-only mode.
+    # No exchange credential validation is performed here.
 
     # Telegram validation
     if MOCK_CONFIG.telegram.enabled:
