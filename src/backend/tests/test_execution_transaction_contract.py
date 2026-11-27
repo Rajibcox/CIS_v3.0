@@ -93,11 +93,15 @@ async def test_entry_persistence_is_one_linked_order_inside_caller_transaction(
     assert orders[0].position_id == position.id
     assert orders[0].status.value == "filled"
     assert db_session.in_transaction() is True
+    # Persisted orders are owned by the caller's DB transaction, not the
+    # executor's non-transactional in-memory cache.
+    assert service.paper_executor.orders == {}
 
     # The service must flush, not commit: the caller retains transaction control.
     db_session.rollback()
     assert db_session.query(Position).count() == 0
     assert db_session.query(Order).count() == 0
+    assert service.paper_executor.orders == {}
 
 
 @pytest.mark.asyncio
@@ -168,6 +172,11 @@ async def test_pending_paper_order_is_persisted_in_caller_transaction(
     assert saved.status.value == "pending"
     assert saved.position_id is None
     assert db_session.in_transaction() is True
+    assert service.paper_executor.orders == {}
+
+    db_session.rollback()
+    assert db_session.query(Order).count() == 0
+    assert service.paper_executor.orders == {}
 
 
 @pytest.mark.asyncio
