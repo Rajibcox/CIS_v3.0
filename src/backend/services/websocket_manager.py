@@ -3,7 +3,6 @@ WebSocket Manager for QUANTUM TRADER V1
 Handles real-time WebSocket connections for market data and trade updates
 """
 
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -398,11 +397,10 @@ class WebSocketManager:
         self.connection_manager.register_handler("get_signal", "signals", self._handle_get_signal)
         self.connection_manager.register_handler("get_pnl", "pnl", self._handle_get_pnl)
 
-        # Retain the background task so shutdown can await its completion.
+        # No periodic payloads are broadcast until they are sourced from
+        # authoritative runtime metrics. Client-requested data handlers below
+        # return an explicit unavailable response rather than placeholders.
         self._running = True
-        if self._update_task is None or self._update_task.done():
-            self._update_task = asyncio.create_task(self._broadcast_updates())
-
         self.logger.info("WebSocket Manager initialized")
 
     async def shutdown(self):
@@ -556,151 +554,51 @@ class WebSocketManager:
         )
         await self.connection_manager.broadcast(f"regime:{symbol}", message)
 
-    async def _broadcast_updates(self):
-        """Background task to broadcast periodic updates"""
-        while True:
-            try:
-                await asyncio.sleep(5)  # Update every 5 seconds
-
-                # Broadcast market overview periodically
-                # This would fetch from market data service
-
-                # Broadcast system stats
-                stats = {
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "uptime_seconds": 0,  # Would calculate actual uptime
-                    "memory_usage_mb": 0,
-                    "cpu_percent": 0
-                }
-                await self.broadcast_system_status(stats)
-
-            except Exception as e:
-                logging.getLogger(__name__).error(f"Error in broadcast updates: {e}")
-            await asyncio.sleep(30)  # Update every 30 seconds
-
     # Message handlers for client requests
-    async def _handle_get_ticker(self, client_id: str, message: Dict):
-        """Handle get ticker request"""
-        symbol = message.get("symbol", "BTCUSDT")
-        exchange = message.get("exchange", "binance")
-
-        # This would fetch from market data service
-        ticker_data = {
-            "symbol": symbol,
-            "exchange": exchange,
-            "price": 50000,
-            "bid": 49999,
-            "ask": 50001,
-            "volume_24h": 1000000,
-            "change_24h_pct": 2.5
-        }
-
+    async def _send_unavailable(
+        self, client_id: str, channel: str, message: Dict, resource: str
+    ):
+        """Return an explicit unavailable response; never synthesize payload data."""
         await self.connection_manager.send_personal(
             client_id,
             WSMessage(
-                type="ticker",
-                channel=f"ticker:{symbol}",
-                data=ticker_data,
-                request_id=message.get("request_id")
-            )
+                type="error",
+                channel=channel,
+                data={
+                    "error": "data_unavailable",
+                    "resource": resource,
+                    "message": (
+                        f"{resource} is unavailable because this WebSocket "
+                        "request is not connected to an authoritative data source."
+                    ),
+                },
+                request_id=message.get("request_id"),
+            ),
+        )
+
+    async def _handle_get_ticker(self, client_id: str, message: Dict):
+        await self._send_unavailable(
+            client_id, f"ticker:{message.get('symbol', '')}", message, "Ticker data"
         )
 
     async def _handle_get_orderbook(self, client_id: str, message: Dict):
-        """Handle get orderbook request"""
-        symbol = message.get("symbol", "BTCUSDT")
-        exchange = message.get("exchange", "binance")
-        depth = message.get("depth", 20)
-
-        # Would fetch from market data service
-        orderbook_data = {
-            "symbol": symbol,
-            "exchange": exchange,
-            "bids": [[50000, 1.0], [49999, 2.0]],
-            "asks": [[50001, 1.0], [50002, 2.0]],
-            "timestamp": datetime.utcnow().isoformat()
-        }
-
-        await self.connection_manager.send_personal(
-            client_id,
-            WSMessage(
-                type="orderbook",
-                channel=f"orderbook:{symbol}",
-                data=orderbook_data,
-                request_id=message.get("request_id")
-            )
+        await self._send_unavailable(
+            client_id, f"orderbook:{message.get('symbol', '')}", message, "Order book data"
         )
 
     async def _handle_get_position(self, client_id: str, message: Dict):
-        """Handle get position request"""
-        position_id = message.get("position_id")
-
-        # Would fetch from execution service
-        position_data = {
-            "position_id": position_id,
-            "symbol": "BTCUSDT",
-            "direction": "LONG",
-            "entry_price": 50000,
-            "quantity": 0.01,
-            "unrealized_pnl": 50.0
-        }
-
-        await self.connection_manager.send_personal(
-            client_id,
-            WSMessage(
-                type="position",
-                channel="position",
-                data=position_data,
-                request_id=message.get("request_id")
-            )
+        await self._send_unavailable(
+            client_id, "position", message, "Position data"
         )
 
     async def _handle_get_signal(self, client_id: str, message: Dict):
-        """Handle get signal request"""
-        signal_id = message.get("signal_id")
-
-        # Would fetch from signal service
-        signal_data = {
-            "signal_id": signal_id,
-            "symbol": "BTCUSDT",
-            "direction": "LONG",
-            "entry_price": 50000,
-            "stop_loss": 49000,
-            "tp1": 51000,
-            "tp2": 52000,
-            "tp3": 53000
-        }
-
-        await self.connection_manager.send_personal(
-            client_id,
-            WSMessage(
-                type="signal",
-                channel="signal",
-                data=signal_data,
-                request_id=message.get("request_id")
-            )
+        await self._send_unavailable(
+            client_id, "signal", message, "Signal data"
         )
 
     async def _handle_get_pnl(self, client_id: str, message: Dict):
-        """Handle get PnL request"""
-        period = message.get("period", "30d")
-
-        # Would fetch from PnL service
-        pnl_data = {
-            "period": period,
-            "net_pnl": 150.50,
-            "win_rate": 65.5,
-            "profit_factor": 1.8,
-            "total_trades": 47
-        }
-
-        await self.connection_manager.send_personal(
-            client_id,
-            WSMessage(
-                type="pnl",
-                channel="pnl",
-                data=pnl_data,
-                request_id=message.get("request_id")
-            )
+        await self._send_unavailable(
+            client_id, "pnl", message, "PnL data"
         )
 
 
