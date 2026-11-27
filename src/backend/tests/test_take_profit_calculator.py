@@ -161,7 +161,7 @@ def test_invalid_target_configuration_is_rejected(target):
     "direction,entry,target",
     [
         ("LONG", "NaN", {"method": "fixed_percentage", "parameters": {"percentage": 5.0}}),
-        ("LONG", "100", {"method": "fixed_percentage", "parameters": {"percentage": 100.0}}),
+        ("SHORT", "100", {"method": "fixed_percentage", "parameters": {"percentage": 100.0}}),
     ],
 )
 def test_invalid_or_nonpositive_target_output_is_rejected(direction, entry, target):
