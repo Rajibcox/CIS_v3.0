@@ -382,7 +382,7 @@ class SignalService:
         self.logger = logging.getLogger(__name__)
 
         self.scorer = SignalScorer(config)
-        self.generator = SignalGenerator(config, None)  # strategy_service
+        self.generator = SignalGenerator(config, strategy_service)
         self.lifecycle = SignalLifecycleManager(config)
 
         self._running = False
@@ -394,8 +394,9 @@ class SignalService:
         """Initialize signal service"""
         self.logger.info("Initializing Signal Service...")
         self._running = True
-        # Start signal generation loop
-        asyncio.create_task(self._generation_loop())
+        # Retain the task so shutdown can reliably cancel and await it.
+        if self._generation_task is None or self._generation_task.done():
+            self._generation_task = asyncio.create_task(self._generation_loop())
         self.logger.info("Signal Service initialized")
 
     async def shutdown(self):
@@ -469,8 +470,16 @@ class SignalService:
         return {"success": True, "position_id": 123}
 
     async def shutdown(self):
-        """Shutdown signal service"""
+        """Stop the signal generation loop and wait for it to finish."""
         self._running = False
+        if self._generation_task is not None:
+            self._generation_task.cancel()
+            try:
+                await self._generation_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._generation_task = None
 
 
 async def create_signal_service(
