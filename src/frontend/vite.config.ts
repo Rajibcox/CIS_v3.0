@@ -9,6 +9,7 @@ export default defineConfig({
   },
   server: {
     port: 3000, // Frontend dev server port
+    strictPort: true, // Keep the dev origin aligned with the backend CORS allowlist.
     proxy: {
       '/api': 'http://localhost:8000', // Proxy API requests to backend
       '/ws': {
