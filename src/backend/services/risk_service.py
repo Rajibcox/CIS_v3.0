@@ -144,7 +144,7 @@ class RiskEngine:
         stop_distance = abs(entry_price - stop_loss)
 
         # 2. Calculate max risk amount
-        max_risk = self._quantize(Decimal(str(self.config.settings.initial_equity)) * risk_per_trade)
+        max_risk = self._quantize(Decimal(str(equity)) * risk_per_trade)
 
         # 3. Calculate raw position size
         raw_quantity = max_risk / stop_distance
