@@ -84,6 +84,78 @@ def test_strategy_api_create_read_and_list_persist_across_requests(api_client):
         assert {rule.rule_type for rule in rules} == {"entry", "exit"}
 
 
+def _trade_plan():
+    return {
+                "schema_version": 1,
+                "entry": "strategy_rule_match",
+                "stop_loss": {"method": "strategy_defined_sl", "parameters": {"source": "configured_rule"}},
+                "take_profit": {
+                    "targets": {
+                        "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
+                        "tp2": {"method": "strategy_defined_tp2", "parameters": {}},
+                        "tp3": {"method": "strategy_defined_tp3", "parameters": {}}
+                    },
+                    "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10}
+                },
+                "runner": {"method": "strategy_defined_runner", "parameters": {}}
+            }
+
+
+def test_strategy_api_persists_returns_updates_and_clones_trade_plan(api_client):
+    client, factory, _ = api_client
+    payload = _payload()
+    payload["rule_set"]["trade_plan"] = _trade_plan()
+
+    created = client.post("/api/v1/strategies", json=payload)
+    assert created.status_code == 201, created.text
+    strategy_id = created.json()["id"]
+
+    fetched = client.get(f"/api/v1/strategies/{strategy_id}")
+    assert fetched.status_code == 200
+    assert fetched.json()["trade_plan"]["schema_version"] == 1
+
+    updated_plan = _trade_plan()
+    updated_plan["runner"]["parameters"] = {"trail_mode": "configured"}
+    updated = client.put(
+        f"/api/v1/strategies/{strategy_id}",
+        json={"rule_set": {**payload["rule_set"], "trade_plan": updated_plan}},
+    )
+    assert updated.status_code == 200, updated.text
+
+    cloned = client.post(
+        f"/api/v1/strategies/{strategy_id}/clone",
+        params={"new_name": "Trade plan clone"},
+    )
+    assert cloned.status_code == 201, cloned.text
+    clone_id = cloned.json()["id"]
+    assert cloned.json()["is_active"] is False
+    assert cloned.json()["trade_plan"]["runner"]["parameters"] == {
+        "trail_mode": "configured"
+    }
+
+    with factory() as db:
+        source_plan = db.query(StrategyRule).filter_by(
+            strategy_id=strategy_id, rule_type="trade_plan"
+        ).one()
+        clone_plan = db.query(StrategyRule).filter_by(
+            strategy_id=clone_id, rule_type="trade_plan"
+        ).one()
+        assert source_plan.rule_config == clone_plan.rule_config
+
+
+def test_strategy_api_rejects_invalid_trade_plan_without_persisting(api_client):
+    client, factory, _ = api_client
+    payload = _payload()
+    payload["rule_set"]["trade_plan"] = _trade_plan()
+    payload["rule_set"]["trade_plan"]["take_profit"]["allocation"]["runner"] = 20
+
+    response = client.post("/api/v1/strategies", json=payload)
+    assert response.status_code == 422, response.text
+    with factory() as db:
+        from src.backend.models.database import Strategy
+        assert db.query(Strategy).count() == 0
+
+
 def test_strategy_api_update_and_deactivate(api_client):
     client, _, _ = api_client
     created = client.post("/api/v1/strategies", json=_payload())

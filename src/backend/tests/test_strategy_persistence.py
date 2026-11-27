@@ -70,6 +70,96 @@ def test_create_strategy_persists_api_rule_keys_and_loads_engine(db_session):
     )[0] is False
 
 
+def _trade_plan():
+    return {
+                "schema_version": 1,
+                "entry": "strategy_rule_match",
+                "stop_loss": {"method": "strategy_defined_sl", "parameters": {"source": "configured_rule"}},
+                "take_profit": {
+                    "targets": {
+                        "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
+                        "tp2": {"method": "strategy_defined_tp2", "parameters": {}},
+                        "tp3": {"method": "strategy_defined_tp3", "parameters": {}}
+                    },
+                    "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10}
+                },
+                "runner": {"method": "strategy_defined_runner", "parameters": {}}
+            }
+
+
+def test_trade_plan_is_persisted_and_not_evaluated_as_an_entry_rule(db_session):
+    service = StrategyService(config=None)
+    strategy_id = asyncio.run(service.create_strategy(
+        db=db_session,
+        name="Trade plan contract",
+        description="Persistence-only contract test",
+        version="1.0.0",
+        direction="BOTH",
+        weight=1.0,
+        risk_multiplier=1.0,
+        timeframes=["1h"],
+        symbols=[],
+        min_signal_score=70.0,
+        rule_set={
+            "entry_rules": _group(conditions=[_rsi("<", 30)]),
+            "exit_rules": _group(conditions=[_rsi(">", 70)]),
+            "trade_plan": _trade_plan(),
+        },
+    ))
+
+    stored = db_session.query(StrategyRule).filter_by(
+        strategy_id=strategy_id, rule_type="trade_plan"
+    ).one()
+    assert stored.rule_config["schema_version"] == 1
+    assert stored.rule_config["take_profit"]["allocation"] == {
+        "tp1": 40.0, "tp2": 30.0, "tp3": 20.0, "runner": 10.0
+    }
+    # Loading succeeds, but only the entry rule participates in evaluation.
+    assert service.engine.evaluate_entry(
+        strategy_id, {"rsi": 25.0}, "1h", "LONG"
+    ) == (True, {"matched_rule_types": ["entry"]})
+
+
+def test_trade_plan_rejects_invalid_version_allocation_and_missing_target(db_session):
+    service = StrategyService(config=None)
+    invalid_plans = []
+    wrong_version = _trade_plan()
+    wrong_version["schema_version"] = 2
+    invalid_plans.append(wrong_version)
+    bad_allocation = _trade_plan()
+    bad_allocation["take_profit"]["allocation"]["runner"] = 15
+    invalid_plans.append(bad_allocation)
+    missing_target = _trade_plan()
+    del missing_target["take_profit"]["targets"]["tp3"]
+    invalid_plans.append(missing_target)
+
+    for plan in invalid_plans:
+        with pytest.raises(ValueError, match="Invalid trade_plan"):
+            service._normalize_rule_set({
+                "entry_rules": _group(conditions=[_rsi("<", 30)]),
+                "trade_plan": plan,
+            })
+
+
+def test_trade_plan_rejects_unknown_fields_and_malformed_method_ids():
+    service = StrategyService(config=None)
+    unknown_field = _trade_plan()
+    unknown_field["stop_loss"]["unexpected"] = True
+    with pytest.raises(ValueError, match="Invalid trade_plan"):
+        service._normalize_rule_set({
+            "entry_rules": _group(conditions=[_rsi("<", 30)]),
+            "trade_plan": unknown_field,
+        })
+
+    malformed_method = _trade_plan()
+    malformed_method["runner"]["method"] = "ATR trailing"
+    with pytest.raises(ValueError, match="Invalid trade_plan"):
+        service._normalize_rule_set({
+            "entry_rules": _group(conditions=[_rsi("<", 30)]),
+            "trade_plan": malformed_method,
+        })
+
+
 def test_nested_and_or_groups_are_evaluated_recursively(db_session):
     strategy = Strategy(name="Nested", version="1.0.0", is_active=True)
     db_session.add(strategy)

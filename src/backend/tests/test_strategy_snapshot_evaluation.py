@@ -171,6 +171,42 @@ def test_directional_rule_type_is_reported_only_when_configured(db_session):
     assert matches[0].matched_rule_types == ["entry", "long"]
 
 
+def test_trade_plan_record_does_not_break_or_satisfy_entry_evaluation(db_session):
+    strategy = _strategy(
+        db_session,
+        entry_conditions=[_condition("RSI", "<", 30)],
+    )
+    db_session.add(StrategyRule(
+        strategy_id=strategy.id,
+        rule_type="trade_plan",
+        rule_config={
+                "schema_version": 1,
+                "entry": "strategy_rule_match",
+                "stop_loss": {"method": "strategy_defined_sl", "parameters": {"source": "configured_rule"}},
+                "take_profit": {
+                    "targets": {
+                        "tp1": {"method": "strategy_defined_tp1", "parameters": {}},
+                        "tp2": {"method": "strategy_defined_tp2", "parameters": {}},
+                        "tp3": {"method": "strategy_defined_tp3", "parameters": {}}
+                    },
+                    "allocation": {"tp1": 40, "tp2": 30, "tp3": 20, "runner": 10}
+                },
+                "runner": {"method": "strategy_defined_runner", "parameters": {}}
+            },
+        is_active=True,
+    ))
+    db_session.commit()
+
+    engine = StrategyEngine(config=None)
+    engine.load_active_strategies(db_session)
+    assert engine.evaluate_entry(
+        strategy.id, {"rsi": 25.0}, "1h", "LONG"
+    ) == (True, {"matched_rule_types": ["entry"]})
+    assert engine.evaluate_entry(
+        strategy.id, {"rsi": 35.0}, "1h", "LONG"
+    ) == (False, {})
+
+
 def test_direction_configuration_blocks_opposite_direction(db_session):
     _strategy(
         db_session,

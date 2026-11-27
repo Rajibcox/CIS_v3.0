@@ -15,6 +15,7 @@ from sqlalchemy import and_, desc
 from src.backend.models.database import (
     Strategy, StrategyRule, Signal, Position
 )
+from src.backend.models.trade_plan import TradePlanConfig
 from src.backend.utils.config import Config
 from src.backend.utils.logger import get_logger
 
@@ -96,6 +97,9 @@ class StrategyEngine:
         ).all()
         # Validate persisted configuration before making it eligible for evaluation.
         for rule in rules:
+            if rule.rule_type == "trade_plan":
+                # Trade plans are configuration records, never entry/exit groups.
+                continue
             self._validate_rule_group(rule.rule_config)
         self._strategy_cache[strategy.id] = strategy
         self._rule_cache[strategy.id] = rules
@@ -321,6 +325,20 @@ class StrategyService:
             raise ValueError("rule_set must be an object")
         return rule_set
 
+    @staticmethod
+    def _normalize_trade_plan(trade_plan: Any) -> Dict[str, Any]:
+        """Validate and normalize the versioned, non-executable plan contract."""
+        if hasattr(trade_plan, "model_dump"):
+            trade_plan = trade_plan.model_dump(mode="json", exclude_none=True)
+        if not isinstance(trade_plan, dict):
+            raise ValueError("trade_plan must be an object")
+        try:
+            return TradePlanConfig.model_validate(trade_plan).model_dump(
+                mode="json", exclude_none=True
+            )
+        except Exception as exc:
+            raise ValueError(f"Invalid trade_plan: {exc}") from exc
+
     @classmethod
     def _normalize_rule_set(cls, rule_set: Any) -> Dict[str, Dict]:
         """Normalize API *_rules keys to persisted rule_type values."""
@@ -328,6 +346,7 @@ class StrategyService:
         aliases = {
             "entry_rules": "entry", "exit_rules": "exit",
             "long_rules": "long", "short_rules": "short",
+            "trade_plan": "trade_plan",
             # Accept the service's original internal names for compatibility.
             "entry": "entry", "exit": "exit", "long": "long", "short": "short",
         }
@@ -337,8 +356,11 @@ class StrategyService:
                 raise ValueError(f"Unsupported rule set key: {key}")
             if value is None:
                 continue
-            StrategyEngine._validate_rule_group(value)
             rule_type = aliases[key]
+            if rule_type == "trade_plan":
+                value = cls._normalize_trade_plan(value)
+            else:
+                StrategyEngine._validate_rule_group(value)
             if rule_type in normalized:
                 raise ValueError(f"Duplicate rule set for {rule_type}")
             normalized[rule_type] = value

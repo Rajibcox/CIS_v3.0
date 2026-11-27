@@ -6,6 +6,7 @@ Strategy management, visual builder, performance, versions
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+from src.backend.models.trade_plan import TradePlanConfig
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -87,6 +88,7 @@ class StrategyRuleSet(BaseModel):
     exit_rules: RuleGroup
     long_rules: Optional[RuleGroup] = None
     short_rules: Optional[RuleGroup] = None
+    trade_plan: Optional[TradePlanConfig] = None
 
 
 class StrategyBase(BaseModel):
@@ -119,6 +121,7 @@ class StrategyUpdate(BaseModel):
 
 
 class StrategyResponse(StrategyBase):
+    trade_plan: Optional[TradePlanConfig] = None
     id: int
     created_by: Optional[str] = None
     created_at: datetime
@@ -360,6 +363,18 @@ MOCK_INDICATORS = [
 
 
 # Routes
+def _strategy_trade_plan(strategy):
+    """Return the single persisted trade-plan config, if one exists."""
+    plans = [
+        rule.rule_config
+        for rule in strategy.rules
+        if rule.rule_type == "trade_plan" and rule.is_active
+    ]
+    if len(plans) > 1:
+        raise ValueError("Strategy has multiple active trade-plan configurations")
+    return plans[0] if plans else None
+
+
 def _strategy_payload(strategy):
     """Serialize persisted strategy metadata without invented performance data."""
     return {
@@ -374,6 +389,7 @@ def _strategy_payload(strategy):
         "timeframes": strategy.timeframes or [],
         "symbols": strategy.symbols or [],
         "min_signal_score": strategy.min_signal_score,
+        "trade_plan": _strategy_trade_plan(strategy),
         "created_by": strategy.created_by,
         "created_at": strategy.created_at,
         "updated_at": strategy.updated_at,
