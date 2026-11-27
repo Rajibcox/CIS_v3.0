@@ -10,6 +10,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
+from src.backend.api.router import api_router, ws_router
 from src.backend.services import initialize_services, shutdown_services
 from src.backend.utils.config import Config
 from src.backend.utils.logger import setup_logging
