@@ -186,6 +186,23 @@ class PnLEngine:
     def calculate_hold_time(self, opened_at: datetime, closed_at: datetime) -> Decimal:
         return Decimal(str((closed_at - opened_at).total_seconds() / 3600)).quantize(Decimal("0.01"))
 
+    def calculate_drawdown(self, equity_curve: List[Decimal]) -> Dict[str, Decimal]:
+        peak = Decimal("0")
+        drawdowns = []
+        max_drawdown = Decimal("0")
+        for raw_equity in equity_curve:
+            equity = _decimal(raw_equity, "equity")
+            peak = max(peak, equity)
+            drawdown = ((peak - equity) / peak * 100) if peak > 0 else Decimal("0")
+            drawdowns.append(drawdown)
+            max_drawdown = max(max_drawdown, drawdown)
+        return {
+            "max_drawdown": max_drawdown,
+            "avg_drawdown": sum(drawdowns, Decimal("0")) / len(drawdowns) if drawdowns else Decimal("0"),
+            "max_duration_days": len(drawdowns) // 24,
+            "current_drawdown": drawdowns[-1] if drawdowns else Decimal("0"),
+        }
+
 
 class PnLCalculator:
     """Calculates marked and realized PnL for LONG and SHORT positions."""
@@ -228,6 +245,85 @@ class PnLCalculator:
             exit_fees=_decimal(fees, "fees"),
             funding=_decimal(funding, "funding"),
         )
+
+
+class PnLAnalytics:
+    """Compatibility analytics facade over actual persisted trade data."""
+
+    def __init__(self, config: Config):
+        self.config = config
+        self.engine = PnLEngine(config)
+
+    def calculate_pnl_summary(self, trades: List[Dict], period_days: int = 30) -> PnLSummary:
+        values = [_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades]
+        wins = [v for v in values if v > 0]
+        losses = [v for v in values if v <= 0]
+        gross = sum((_decimal(t.get("gross_pnl", t.get("net_pnl", 0)), "gross_pnl") for t in trades), Decimal("0"))
+        fees = sum((_decimal(t.get("fees", 0), "fees") for t in trades), Decimal("0"))
+        funding = sum((_decimal(t.get("funding", 0), "funding") for t in trades), Decimal("0"))
+        net = sum(values, Decimal("0"))
+        gross_profit = sum(wins, Decimal("0"))
+        gross_loss = abs(sum(losses, Decimal("0")))
+        return PnLSummary(
+            period_days=period_days, total_trades=len(trades),
+            winning_trades=len(wins), losing_trades=len(losses),
+            gross_pnl=gross, total_fees=fees, total_funding=funding, net_pnl=net,
+            win_rate=Decimal(len(wins)) / Decimal(len(values)) * 100 if values else Decimal("0"),
+            profit_factor=gross_profit / gross_loss if gross_loss else (Decimal("999") if gross_profit else Decimal("0")),
+            expectancy=net / Decimal(len(values)) if values else Decimal("0"),
+            avg_r_multiple=sum((_decimal(t.get("r_multiple", 0), "r_multiple") for t in trades), Decimal("0")) / Decimal(len(values)) if values else Decimal("0"),
+            max_drawdown=Decimal("0"), best_trade=max(values) if values else Decimal("0"),
+            worst_trade=min(values) if values else Decimal("0"),
+            avg_hold_time_hours=sum((_decimal(t.get("hold_time_hours", 0), "hold_time_hours") for t in trades), Decimal("0")) / Decimal(len(values)) if values else Decimal("0"),
+            by_exit_reason={}, by_tp_stage={},
+        )
+
+    def calculate_performance_metrics(self, trades: List[Dict], equity_curve: List[Decimal], period_days: int = 30) -> PerformanceMetrics:
+        summary = self.calculate_pnl_summary(trades, period_days)
+        zero = Decimal("0")
+        return PerformanceMetrics(
+            total_return_pct=zero, annualized_return_pct=zero, volatility_pct=zero,
+            sharpe_ratio=None, sortino_ratio=None, calmar_ratio=None,
+            max_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["max_drawdown"],
+            avg_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["avg_drawdown"],
+            max_drawdown_duration_days=self.engine.calculate_drawdown(equity_curve)["max_duration_days"],
+            current_drawdown_pct=self.engine.calculate_drawdown(equity_curve)["current_drawdown"],
+            total_trades=summary.total_trades, win_rate=summary.win_rate,
+            profit_factor=summary.profit_factor, expectancy=summary.expectancy,
+            avg_win=sum((v for v in (_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades) if v > 0), zero) / Decimal(len([t for t in trades if _decimal(t.get("net_pnl", 0), "net_pnl") > 0])) if any(_decimal(t.get("net_pnl", 0), "net_pnl") > 0 for t in trades) else zero,
+            avg_loss=sum((v for v in (_decimal(t.get("net_pnl", 0), "net_pnl") for t in trades) if v <= 0), zero) / Decimal(len([t for t in trades if _decimal(t.get("net_pnl", 0), "net_pnl") <= 0])) if any(_decimal(t.get("net_pnl", 0), "net_pnl") <= 0 for t in trades) else zero,
+            avg_r_multiple=summary.avg_r_multiple,
+            largest_win=summary.best_trade, largest_loss=summary.worst_trade,
+            consecutive_wins=0, consecutive_losses=0, risk_adjusted_return=zero,
+            ulcer_index=zero, sterling_ratio=zero,
+        )
+
+    def calculate_breakdowns(self, trades: List[Dict]) -> Dict[str, List[BreakdownItem]]:
+        result = {}
+        for category in ("symbol", "direction", "timeframe", "strategy", "regime", "exit_reason", "tp_stage"):
+            groups = {}
+            for trade in trades:
+                groups.setdefault(str(trade.get(category, "unknown")), []).append(trade)
+            items = []
+            for key, group in groups.items():
+                summary = self.calculate_pnl_summary(group)
+                items.append(BreakdownItem(key, len(group), summary.win_rate, summary.profit_factor, summary.net_pnl, summary.avg_r_multiple))
+            result[f"by_{category}"] = items
+        return result
+
+    def calculate_tp_analytics(self, trades: List[Dict]) -> TPAnalytics:
+        zero = Decimal("0")
+        return TPAnalytics(zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, {})
+
+    def generate_equity_curve(self, trades: List[Dict], initial_equity: Decimal = Decimal("100")) -> List[Dict]:
+        equity = _decimal(initial_equity, "initial_equity")
+        curve = []
+        for trade in sorted(trades, key=lambda item: item.get("closed_at") or datetime.min):
+            pnl = _decimal(trade.get("net_pnl", 0), "net_pnl")
+            equity += pnl
+            closed_at = trade.get("closed_at") or datetime.utcnow()
+            curve.append({"timestamp": closed_at.isoformat(), "equity": equity, "trade_pnl": pnl, "trade_id": trade.get("id")})
+        return curve
 
 
 class PnLService:
