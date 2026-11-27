@@ -44,10 +44,13 @@ def create_app(config: Config = None) -> FastAPI:
         print(f"Starting {config.settings.app_name} v{config.settings.version}")
         print(f"Configuration loaded from: {config.settings.project_root}")
 
-        await initialize_services(config)
         try:
+            await initialize_services(config)
             yield
         finally:
+            # initialize_services may fail after creating some services.
+            # Always attempt cleanup so partially initialized services do not
+            # leave background tasks, sockets, or other resources running.
             await shutdown_services()
             print("Shutting down...")
 
