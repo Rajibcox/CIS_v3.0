@@ -86,6 +86,22 @@ class SignalEvent:
     price: Optional[Decimal] = None
 
 
+@dataclass(frozen=True)
+class StrategyMatch:
+    """A real entry-rule match; not an actionable or executable signal."""
+    strategy_id: int
+    strategy_name: str
+    strategy_version: str
+    symbol: str
+    exchange: str
+    direction: str
+    timeframe: str
+    regime: str
+    current_price: Optional[Decimal]
+    matched_rule_types: List[str]
+    indicators: Dict[str, float]
+
+
 class SignalScorer:
     """Scores and validates signal candidates"""
 
@@ -393,6 +409,12 @@ class SignalService:
         self._generation_task: Optional[asyncio.Task] = None
         self._active_signals: Dict[int, Any] = {}
         self._signal_callbacks: List[Callable] = []
+        self._last_strategy_matches: List[StrategyMatch] = []
+
+    @property
+    def latest_strategy_matches(self) -> List[StrategyMatch]:
+        """Return the most recent rule matches without exposing internal list mutation."""
+        return list(self._last_strategy_matches)
 
     async def initialize(self):
         """Initialize signal service"""
@@ -421,28 +443,105 @@ class SignalService:
         """Manually trigger signal generation"""
         return await self._generate_signals()
 
-    async def _generate_signals(self) -> List[Any]:
-        """Generate signals for all active strategies.
+    def evaluate_strategy_matches(self) -> List[StrategyMatch]:
+        """Evaluate active persisted entry rules against the latest raw snapshots.
 
-        Signal generation currently has no scanner snapshot input or database
-        session in this service's constructor. Until those existing inputs are
-        provided by the caller, and strategies have loaded active entry rules,
-        the safe result is an empty collection. In particular, zero-rule
-        strategies must not be treated as unconditional signal candidates.
+        This stage deliberately stops at rule matching. It does not construct a
+        SignalCandidate, infer stop/target levels, persist a signal, or execute
+        an order. Those require the later trade-plan and qualification stages.
         """
+        self._last_strategy_matches = []
+        scanner = self.market_scanner
         strategy_engine = getattr(self.strategy_service, "engine", None)
-        rule_cache = getattr(strategy_engine, "_rule_cache", None)
-
-        if not rule_cache:
-            self.logger.info(
-                "Signal generation skipped: no active strategy rules are loaded."
-            )
+        if scanner is None or strategy_engine is None:
             return []
 
-        self.logger.info(
-            "Signal generation skipped: scanner snapshots are not available "
-            "to SignalService; returning no candidates."
-        )
+        snapshots = getattr(scanner, "latest_snapshots", None)
+        if not isinstance(snapshots, dict) or not snapshots:
+            return []
+
+        strategies = getattr(strategy_engine, "_strategy_cache", {})
+        rules_by_strategy = getattr(strategy_engine, "_rule_cache", {})
+        matches: List[StrategyMatch] = []
+
+        for strategy_id, strategy in strategies.items():
+            if not getattr(strategy, "is_active", False):
+                continue
+            if not rules_by_strategy.get(strategy_id):
+                continue
+
+            configured_symbols = getattr(strategy, "symbols", None) or []
+            allowed_symbols = {str(symbol).upper() for symbol in configured_symbols}
+            configured_timeframes = getattr(strategy, "timeframes", None) or []
+            if not isinstance(configured_timeframes, (list, tuple)):
+                continue
+            timeframes = list(dict.fromkeys(
+                str(timeframe).lower() for timeframe in configured_timeframes
+                if isinstance(timeframe, str) and timeframe
+            ))
+            if not timeframes:
+                continue
+
+            strategy_direction = str(
+                getattr(strategy, "direction", "both") or "both"
+            ).lower()
+            if strategy_direction == "long":
+                directions = ("LONG",)
+            elif strategy_direction == "short":
+                directions = ("SHORT",)
+            elif strategy_direction in ("both", "buy_sell"):
+                directions = ("LONG", "SHORT")
+            else:
+                continue
+
+            for snapshot in snapshots.values():
+                symbol = getattr(snapshot, "symbol", None)
+                exchange = getattr(snapshot, "exchange", None)
+                indicators = getattr(snapshot, "indicators", None)
+                if not symbol or not exchange or not isinstance(indicators, dict) or not indicators:
+                    continue
+                if allowed_symbols and str(symbol).upper() not in allowed_symbols:
+                    continue
+
+                for timeframe in timeframes:
+                    for direction in directions:
+                        matched, evidence = strategy_engine.evaluate_entry(
+                            strategy_id, indicators, timeframe, direction
+                        )
+                        if not matched:
+                            continue
+                        ticker = getattr(snapshot, "ticker", None)
+                        price = getattr(ticker, "price", None) if ticker is not None else None
+                        matches.append(StrategyMatch(
+                            strategy_id=strategy_id,
+                            strategy_name=strategy.name,
+                            strategy_version=strategy.version,
+                            symbol=str(symbol),
+                            exchange=str(exchange),
+                            direction=direction,
+                            timeframe=timeframe,
+                            regime=str(getattr(snapshot, "regime", "unknown")),
+                            current_price=price,
+                            matched_rule_types=list(evidence.get("matched_rule_types", [])),
+                            indicators=dict(indicators),
+                        ))
+
+        self._last_strategy_matches = matches
+        return list(matches)
+
+    async def _generate_signals(self) -> List[Any]:
+        """Run genuine strategy matching without fabricating actionable signals."""
+        matches = self.evaluate_strategy_matches()
+        if matches:
+            self.logger.info(
+                "Strategy evaluation completed: %s rule matches; "
+                "trade-plan qualification is not yet enabled.",
+                len(matches),
+            )
+        else:
+            self.logger.info("Strategy evaluation completed: no qualifying rule matches.")
+        # A rule match is not yet a SignalCandidate: strategy-specific entry,
+        # stop-loss, targets, costs, and risk checks are still required.
         return []
 
     def register_callback(self, callback: Callable):
