@@ -153,7 +153,7 @@ export function SignalsPage() {
   );
 }
 
-function StatCard({ title, value, subtitle, icon }: { title: string; value: string; subtitle?: string; icon: React.ReactNode }) {
+function StatCard({ title, value, subtitle, icon }: { title: string; value: string | number; subtitle?: string; icon: React.ReactNode }) {
   return (
     <Card>
       <CardContent className="pt-6">
