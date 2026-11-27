@@ -56,7 +56,7 @@ class ExchangeConfigResponse(BaseModel):
     position_mode: PositionMode
     has_credentials: bool
     last_tested: Optional[datetime] = None
-    connection_status: str  # connected, disconnected, error
+    connection_status: str  # not_configured until a real exchange adapter is implemented
 
 
 class MarketConfig(BaseModel):
@@ -241,7 +241,7 @@ MOCK_CONFIG = FullConfig(
 # Routes
 @router.get("", response_model=FullConfig)
 async def get_full_config():
-    """Get complete configuration (secrets masked)"""
+    """Get configuration; exchange credentials are unsupported and Telegram token is masked."""
     config = MOCK_CONFIG.dict()
     if config["telegram"].get("bot_token"):
         config["telegram"]["bot_token"] = "***"
