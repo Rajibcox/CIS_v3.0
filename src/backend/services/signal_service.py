@@ -489,6 +489,8 @@ async def create_signal_service(
     strategy_service: Any
 ) -> SignalService:
     """Create and initialize signal service"""
-    service = SignalService(config, market_data_service, None, None)
+    service = SignalService(
+        config, market_data_service, market_regime_service, strategy_service
+    )
     await service.initialize()
     return service
